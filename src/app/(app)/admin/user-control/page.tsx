@@ -1,3 +1,4 @@
+import { UserAccounts } from "@/components/admin/user-accounts";
 import { UserControl } from "@/components/admin/user-control";
 import { getUserControlData } from "@/server/admin/queries";
 
@@ -15,6 +16,7 @@ export default async function Page() {
           </p>
         </div>
       </div>
+      {data.editable && <UserAccounts users={data.users} outlets={data.outlets} selfId={data.selfId} />}
       <UserControl
         initialUsers={data.users}
         screens={data.screenDefinitions}

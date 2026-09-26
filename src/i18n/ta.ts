@@ -20,6 +20,9 @@ export const ta: Dictionary = {
   "shell.language": "மொழி",
   "shell.signedInAs": "உள்நுழைந்தவர்",
   "shell.tagline": "அளவீடுகள், ரொக்கம், இருப்பு மற்றும் தரம்",
+  "shell.menu": "மெனு",
+  "shell.changePassword": "கடவுச்சொல்லை மாற்று",
+  "shell.signOut": "வெளியேறு",
 
   // ---- Common actions and column headings -------------------------------
   "common.apply": "பயன்படுத்து",

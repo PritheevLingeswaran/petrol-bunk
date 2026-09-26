@@ -35,8 +35,8 @@ export function ProfitChart({
           <YAxis stroke="#8fa1ba" />
           <Tooltip
             contentStyle={{
-              background: "#101b2b",
-              border: "1px solid #26364d",
+              background: "var(--surface)",
+              border: "1px solid var(--line)",
             }}
           />
           <Legend />

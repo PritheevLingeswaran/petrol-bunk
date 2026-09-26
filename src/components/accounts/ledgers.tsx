@@ -489,7 +489,7 @@ export function AgeingScreen({ report, today }: { report: AgeingReport; today: s
               <CartesianGrid stroke="#1d2d42" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#7b8ca4" fontSize={10} interval={0} angle={-18} textAnchor="end" height={62} />
               <YAxis stroke="#7b8ca4" fontSize={11} width={78} />
-              <Tooltip contentStyle={{ background: "#101b2b", border: "1px solid #26364d", fontSize: 12 }} formatter={(value: number) => formatINR(value)} />
+              <Tooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", fontSize: 12 }} formatter={(value: number) => formatINR(value)} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {report.labels.map((label, index) => (
                 <Bar key={label} dataKey={label} stackId="ageing" fill={palette[index % palette.length]} name={`${label} days`} />

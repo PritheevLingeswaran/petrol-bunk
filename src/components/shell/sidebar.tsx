@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { CircleDollarSign, Droplets } from "lucide-react";
 import { navigationSections } from "@/lib/navigation";
 import { useT } from "@/i18n/provider";
@@ -10,6 +11,11 @@ export function Sidebar({ allowedHrefs }: { allowedHrefs: string[] }) {
   const pathname = usePathname();
   const t = useT();
   const allowed = new Set(allowedHrefs);
+  // Close the phone menu after a link is followed.
+  useEffect(() => {
+    const toggle = document.getElementById("nav-toggle") as HTMLInputElement | null;
+    if (toggle) toggle.checked = false;
+  }, [pathname]);
   return (
     <aside className="sidebar">
       <div className="brand">

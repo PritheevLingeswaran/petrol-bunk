@@ -26,8 +26,12 @@ npm run db:seed               # masters + 90 days of history
 npm run dev                   # http://localhost:3000
 ```
 
-Sign in as `owner` / `ChangeMe123!` (the account is flagged to change its
-password on first login).
+Sign in as `owner` / `ChangeMe123!`; the app makes you choose a new password
+before anything else. The owner adds everyone else under **User control → Users &
+restrictions → Add user** with a temporary password, which they must change at
+their first sign-in. Five wrong passwords lock an account for 15 minutes
+(`security.maxFailedLogins`, `security.lockoutMinutes`); resetting the password
+lifts the lock.
 
 ## Environment variables
 

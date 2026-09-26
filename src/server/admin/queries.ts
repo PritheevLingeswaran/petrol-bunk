@@ -38,14 +38,20 @@ export async function getUserControlData() {
     },
     orderBy: { username: "asc" },
   });
+  const outlets = await db.outlet.findMany({ where: { id: { in: session.user.outletIds }, isActive: true }, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } });
+  const now = new Date();
   return {
     editable: session.user.role === "OWNER",
+    selfId: session.user.id,
+    outlets,
     users: users.map((user) => ({
       id: user.id,
       username: user.username,
       name: user.name,
       role: user.role.code,
       status: user.status,
+      locked: Boolean(user.lockedUntil && user.lockedUntil > now),
+      mustChangePassword: user.mustChangePassword,
       outlets: user.outlets.map((row) => row.outlet.name).join(", "),
       lockFromDate: user.lockFromDate?.toISOString().slice(0, 10) ?? "",
       lockToDate: user.lockToDate?.toISOString().slice(0, 10) ?? "",

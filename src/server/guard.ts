@@ -1,5 +1,9 @@
 import { ModuleName, type RoleCode } from "@prisma/client";
 import { cookies } from "next/headers";
+import * as React from "react";
+
+// React.cache is only exported under Next's react-server condition; the tsx scripts get a pass-through.
+const perRequest: typeof React.cache = React.cache ?? ((fn) => fn);
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
 import { businessDateToday } from "@/lib/date";
@@ -9,9 +13,13 @@ import { isDateWithinWindow } from "@/lib/access";
 export type PermissionAction = "view" | "add" | "modify" | "delete" | "approve";
 export type OutletScope = { outletIds: string[]; allOutlets: boolean };
 
+/** One lookup per request: a session is a signed cookie, so suspension must be checked against the row. */
+export const getAccountState = perRequest((userId: string) => db.user.findUnique({ where: { id: userId }, select: { status: true, mustChangePassword: true } }));
+
 export async function requireSession() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthenticated");
+  if ((await getAccountState(session.user.id))?.status !== "ACTIVE") throw new Error("This account is suspended");
   return session;
 }
 

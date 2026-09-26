@@ -21,6 +21,9 @@ export const en = {
   "shell.language": "Language",
   "shell.signedInAs": "Signed in as",
   "shell.tagline": "Readings, cash, stock and quality",
+  "shell.menu": "Menu",
+  "shell.changePassword": "Change password",
+  "shell.signOut": "Sign out",
 
   // ---- Common actions and column headings -------------------------------
   "common.apply": "Apply",

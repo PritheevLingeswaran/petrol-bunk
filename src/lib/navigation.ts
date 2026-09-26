@@ -239,7 +239,7 @@ export const navigationSections: NavigationSection[] = [
         module: "USER_CONTROL",
       },
       {
-        label: "User restrictions",
+        label: "Users & restrictions",
         href: "/admin/user-control",
         module: "USER_CONTROL",
       },

@@ -128,7 +128,7 @@ export function VariationRegister({
               <CartesianGrid stroke="#1d2d42" strokeDasharray="3 3" />
               <XAxis dataKey="month" stroke="#7b8ca4" fontSize={11} />
               <YAxis stroke="#7b8ca4" fontSize={11} width={62} />
-              <Tooltip contentStyle={{ background: "#101b2b", border: "1px solid #26364d", fontSize: 12 }} />
+              <Tooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="variation" name="Variation L" stroke="#18b6a4" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="excess" name="Excess loss L" stroke="#e5484d" strokeWidth={2} dot={false} />
@@ -346,7 +346,7 @@ export function TankerLossReport({
               <CartesianGrid stroke="#1d2d42" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#7b8ca4" fontSize={10} />
               <YAxis stroke="#7b8ca4" fontSize={11} width={58} />
-              <Tooltip contentStyle={{ background: "#101b2b", border: "1px solid #26364d", fontSize: 12 }} />
+              <Tooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", fontSize: 12 }} />
               <Bar dataKey="loss" name="Loss L" fill="#18b6a4" />
             </BarChart>
           </ResponsiveContainer>
