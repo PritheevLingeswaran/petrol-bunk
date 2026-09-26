@@ -9,3 +9,6 @@ coverage
 .artifacts
 public/uploads
 .vercel
+
+.vercel
+.env*
