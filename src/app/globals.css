@@ -154,11 +154,11 @@ td.num, th.num { text-align:right; }
 .billing-main { min-width:0; overflow:hidden; }
 .line-toolbar,.register-tools { align-items:center; display:flex; flex-wrap:wrap; gap:9px; justify-content:space-between; padding:13px 15px; }
 .line-toolbar { border-bottom:1px solid var(--line); }
-/* A table in .table-wrap scrolls inside the wrap, so its header pins to the
+/* A table in .table-wrap (or overflow-auto) scrolls inside the wrap, so its header pins to the
    wrap (top:0), not below the page header. Bounding the height gives both the
    sticky header and the frozen totals row a scrollport. */
-.table-wrap { max-height:calc(100vh - 150px); overflow:auto; }
-.table-wrap thead th { top:0; }
+.table-wrap,.overflow-auto:has(> table) { max-height:calc(100vh - 150px); overflow:auto; }
+:is(.table-wrap,.overflow-auto) thead th { top:0; }
 .bill-lines select,.bill-lines input { background:#0b1523; border:1px solid #2b4058; color:var(--text); max-width:260px; min-width:82px; padding:7px 8px; width:100%; }
 .bill-lines td.strong,.strong { font-weight:750; }
 .credit-meter { background:#0d2026; border-left:2px solid var(--teal); color:#a8cbd0; display:grid; font-size:.68rem; gap:2px; padding:7px 9px; }
