@@ -298,7 +298,7 @@ export async function seedPhase6(
       "INTERNAL_AUDIT",
       "S. Narayanan",
       "Safety Officer",
-      "Fuel Retailers",
+      "GT Fuel Retailers",
       "FAIL",
     ],
   ] as const;
