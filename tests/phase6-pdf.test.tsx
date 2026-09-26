@@ -10,7 +10,7 @@ describe("Phase 6 printable documents", () => {
       <InspectionPdf
         report={{
           outlet: {
-            name: "Pritheev Fuel Centre",
+            name: "Fuel Centre",
             addressLine1: "GST Road",
             city: "Chennai",
           },
@@ -50,7 +50,7 @@ describe("Phase 6 printable documents", () => {
         slips={[
           {
             outlet: {
-              name: "Pritheev Fuel Centre",
+              name: "Fuel Centre",
               addressLine1: "GST Road",
               city: "Chennai",
             },

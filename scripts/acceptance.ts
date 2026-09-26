@@ -493,7 +493,7 @@ async function main() {
   // =========================================================================
   {
     const complete = validateEInvoice({
-      supplierGstin: "33AABCP1234A1Z5", supplierLegalName: "Pritheev Fuel Retailers", supplierAddress: "GST Road",
+      supplierGstin: "33AABCP1234A1Z5", supplierLegalName: "Fuel Retailers", supplierAddress: "GST Road",
       supplierLocation: "Chennai", supplierPincode: "600001", supplierStateCode: "33",
       documentNumber: "INV-00001", documentDate: "23/09/2026",
       buyerGstin: "33AAACB1234C1ZP", buyerLegalName: "Bharathi Logistics", buyerAddress: "Poonamallee",
@@ -504,7 +504,7 @@ async function main() {
     assert(complete.length === 0, "A complete invoice validates with no missing fields");
 
     const incomplete = validateEInvoice({
-      supplierGstin: undefined, supplierLegalName: "Pritheev Fuel Retailers", supplierAddress: "GST Road",
+      supplierGstin: undefined, supplierLegalName: "Fuel Retailers", supplierAddress: "GST Road",
       supplierLocation: "Chennai", supplierPincode: undefined, supplierStateCode: "33",
       documentNumber: "INV-00002", documentDate: "23/09/2026",
       buyerGstin: undefined, buyerLegalName: "Walk-in", buyerAddress: "",
