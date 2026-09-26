@@ -1,0 +1,11 @@
+node_modules
+.next
+.env.local
+uploads
+coverage
+*.tsbuildinfo
+.env
+.env.*
+.artifacts
+public/uploads
+.vercel

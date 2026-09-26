@@ -1,0 +1,2998 @@
+// =============================================================================
+// Petrol Bunk Management System — full schema for all 7 phases.
+// Read PROJECT_SPEC.md before changing anything here.
+//
+// Conventions enforced in this file:
+//   * Decimal for every money / litre / rate / density / percent value.
+//       amounts   Decimal(18,2)    litres  Decimal(16,2)    rates Decimal(12,2)
+//       avg cost  Decimal(14,4)    density Decimal(6,1)     pct   Decimal(7,4)
+//   * Every transactional model carries outletId and is indexed on
+//     (outletId, <business date>).
+//   * Business dates are @db.Date (a shift belongs to a date, not a moment).
+//     Everything else is UTC DateTime, displayed in Asia/Kolkata.
+//   * No hard deletes on transactional models — status / isCancelled only.
+//   * Balances are never stored. They are derived from voucher_lines.
+//   * createdById / updatedById / cancelledById are user ids stored as plain
+//     scalars (no FK) on high-volume tables, to avoid ~40 back-relations on
+//     User. Integrity for these is carried by audit_logs, which does have the
+//     FK. Approval and ownership relations that drive logic ARE real FKs.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum RoleCode {
+  OWNER
+  MANAGER
+  ACCOUNTANT
+  CASHIER
+  SALESMAN
+  AUDITOR
+}
+
+enum ModuleName {
+  DASHBOARD
+  PUMP_OPERATIONS
+  BILLING
+  CUSTOMERS
+  ACCOUNTS
+  INVENTORY
+  PURCHASES
+  PAYROLL
+  REPORTS
+  USER_CONTROL
+  SETTINGS
+  AUDIT
+}
+
+enum PermissionEffect {
+  INHERIT
+  GRANT
+  REVOKE
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum ThemePreference {
+  SYSTEM
+  LIGHT
+  DARK
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  CANCEL
+  APPROVE
+  REJECT
+  DELETE
+  PERMISSION_CHANGE
+  SETTING_CHANGE
+  DATE_LOCK_OVERRIDE
+  PRICE_CHANGE
+  LOGIN_LOCKOUT
+}
+
+enum SettingValueType {
+  STRING
+  NUMBER
+  DECIMAL
+  BOOLEAN
+  JSON
+  DATE
+}
+
+enum ProductType {
+  FUEL_MS
+  FUEL_HSD
+  FUEL_PREMIUM_MS
+  FUEL_PREMIUM_HSD
+  LUBRICANT
+  ADBLUE
+  CNG
+  LPG
+  OTHER
+}
+
+enum UnitOfMeasure {
+  LITRE
+  KILOGRAM
+  PIECE
+  MILLILITRE
+  KG_CNG
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  UNDER_MAINTENANCE
+  DECOMMISSIONED
+}
+
+enum ShiftEntryStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REOPENED
+  CANCELLED
+}
+
+enum ReadingSource {
+  MANUAL
+  AUTOMATION
+  CORRECTION
+}
+
+enum DipReadingType {
+  OPENING
+  CLOSING
+  PRE_DECANT
+  POST_DECANT
+  SPOT_CHECK
+}
+
+enum DocumentStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum BillType {
+  CASH
+  CREDIT
+  CARD
+  UPI
+  MIXED
+  COUNTER
+  CONSOLIDATED
+  CREDIT_NOTE
+}
+
+enum InvoiceKind {
+  GST_INVOICE
+  BILL_OF_SUPPLY
+}
+
+enum BillChannel {
+  DESKTOP
+  MOBILE
+  CONSOLIDATED
+}
+
+enum PrintLayout {
+  THERMAL_80MM
+  A5
+  A4
+}
+
+enum ConsolidationFormat {
+  DATE_WISE
+  VEHICLE_WISE
+  SLIP_WISE
+  PRODUCT_WISE
+}
+
+enum ShortCreditStatus {
+  ISSUED
+  CONVERTED
+  RECOVERED
+  WRITTEN_OFF
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum CustomerType {
+  RETAIL
+  CREDIT
+  FLEET
+  CORPORATE
+  GOVERNMENT
+}
+
+enum PaymentModeType {
+  CASH
+  CARD
+  UPI
+  WALLET
+  FLEET_CARD
+  BANK_TRANSFER
+  CHEQUE
+  CREDIT
+  OTHER
+}
+
+enum CalibrationChartType {
+  FUEL
+  WATER
+}
+
+enum RepeatFrequency {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+/// How a salesman accounted for the fuel they dispensed.
+enum CollectionKind {
+  CASH
+  CARD
+  UPI
+  WALLET
+  FLEET_CARD
+  COUPON
+  CREDIT
+  OWN_USE
+  STAFF_VEHICLE
+  EXPENSE
+  OTHER
+}
+
+enum SupplierType {
+  OMC
+  LUBE
+  OTHER
+}
+
+enum PaymentDirection {
+  INWARD
+  OUTWARD
+}
+
+enum VoucherType {
+  SALES
+  PURCHASE
+  RECEIPT
+  PAYMENT
+  CONTRA
+  JOURNAL
+  CREDIT_NOTE
+  DEBIT_NOTE
+  SHIFT_CLOSE
+  STOCK_ADJUSTMENT
+  SALARY
+  DEPRECIATION
+  OPENING_BALANCE
+}
+
+/// Where a group's movement lands on the cash flow statement.
+enum CashFlowCategory {
+  OPERATING
+  INVESTING
+  FINANCING
+  /// Cash and bank themselves — the statement's subject, not a line on it.
+  CASH_EQUIVALENT
+  NONE
+}
+
+enum InstrumentType {
+  CASH
+  CHEQUE
+  DD
+  NEFT
+  RTGS
+  IMPS
+  UPI
+  CARD
+  ADJUSTMENT
+  OTHER
+}
+
+/// Schedule III of the Companies Act 2013 — balance sheet presentation.
+enum ScheduleIIIHead {
+  SHAREHOLDERS_FUNDS
+  NON_CURRENT_LIABILITIES
+  CURRENT_LIABILITIES
+  NON_CURRENT_ASSETS
+  CURRENT_ASSETS
+  REVENUE_FROM_OPERATIONS
+  OTHER_INCOME
+  COST_OF_MATERIALS
+  EMPLOYEE_BENEFITS
+  FINANCE_COSTS
+  DEPRECIATION
+  OTHER_EXPENSES
+  NONE
+}
+
+enum AccountNature {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+  EQUITY
+}
+
+enum BalanceType {
+  DEBIT
+  CREDIT
+}
+
+enum StockMovementType {
+  OPENING
+  PURCHASE_RECEIPT
+  SALE
+  TESTING_RETURN
+  SAMPLE_DRAW
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  RETURN_TO_SUPPLIER
+}
+
+enum VariationStatus {
+  PENDING
+  APPROVED
+  WRITTEN_OFF
+  RECOVERED
+}
+
+enum DecantationStatus {
+  DRAFT
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum SampleType {
+  RETAINED_DECANTATION
+  FILTER_PAPER
+  DENSITY_CHECK
+  AUTHORITY_DRAWN
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  RESIGNED
+  TERMINATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  WEEKLY_OFF
+  CASUAL_LEAVE
+  SICK_LEAVE
+  PAID_LEAVE
+  UNPAID_LEAVE
+  HOLIDAY
+  OVERTIME
+}
+
+enum SalaryComponentType {
+  EARNING
+  DEDUCTION
+  EMPLOYER_CONTRIBUTION
+}
+
+enum SalaryRunStatus {
+  DRAFT
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum ReminderType {
+  LICENCE_RENEWAL
+  CALIBRATION_DUE
+  INSURANCE_RENEWAL
+  AMC_DUE
+  STATUTORY_FILING
+  CUSTOMER_FOLLOWUP
+  CHEQUE_DUE
+  OTHER
+}
+
+enum ReminderStatus {
+  OPEN
+  SNOOZED
+  DONE
+  CANCELLED
+}
+
+enum InspectionType {
+  OMC
+  LEGAL_METROLOGY
+  WEIGHTS_AND_MEASURES
+  FIRE_SAFETY
+  POLLUTION_CONTROL
+  INTERNAL_AUDIT
+  OTHER
+}
+
+enum InspectionResult {
+  PASS
+  PASS_WITH_OBSERVATIONS
+  FAIL
+  PENDING
+}
+
+enum InspectionItemResult {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+}
+
+enum CardSettlementStatus {
+  PENDING
+  SETTLED
+  SHORT_SETTLED
+  DISPUTED
+}
+
+// =============================================================================
+// ORGANISATION
+// =============================================================================
+
+model Outlet {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  name         String
+  legalName    String?
+  omc          String? // IOCL / BPCL / HPCL / RELIANCE / NAYARA / SHELL
+  dealerCode   String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  pincode      String?
+  phone        String?
+  email        String?
+  gstin        String?
+  pan          String?
+  licenceNo    String?
+  licenceValid DateTime? @db.Date
+
+  currency String @default("INR")
+  timezone String @default("Asia/Kolkata")
+
+  /// No one may post on or before this date. OWNER override is audited.
+  booksClosedTill         DateTime? @db.Date
+  financialYearStartMonth Int       @default(4)
+  firmId                  String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              UserOutlet[]
+  firm               Firm?               @relation(fields: [firmId], references: [id])
+  settings           Setting[]
+  numberSeries       NumberSeries[]
+  products           Product[]
+  priceHistory       PriceHistory[]
+  tanks              Tank[]
+  dispensingUnits    DispensingUnit[]
+  nozzles            Nozzle[]
+  employees          Employee[]
+  shifts             Shift[]
+  shiftEntries       ShiftEntry[]
+  shiftSettlements   ShiftSettlement[]
+  shiftCollections   ShiftCollection[]
+  nozzleReadings     NozzleReading[]
+  dipReadings        DipReading[]
+  densityReadings    DensityReading[]
+  purchases          Purchase[]
+  decantations       Decantation[]
+  customers          Customer[]
+  suppliers          Supplier[]
+  bills              Bill[]
+  creditSlips        CreditSlip[]
+  shortCredits       ShortCredit[]
+  billNotifications  BillNotification[]
+  receipts           Receipt[]
+  payments           Payment[]
+  accountGroups      AccountGroup[]
+  accounts           Account[]
+  vouchers           Voucher[]
+  voucherLines       VoucherLine[]
+  voucherAttachments VoucherAttachment[]
+  stockMovements     StockMovement[]
+  inventoryBatches   InventoryBatch[]
+  stockVariations    StockVariation[]
+  samples            Sample[]
+  reminders          Reminder[]
+  inspections        Inspection[]
+  inspectionItems    InspectionItem[]
+  inspectionPhotos   InspectionPhoto[]
+  attendance         Attendance[]
+  salaryStructures   SalaryStructure[]
+  salaryRuns         SalaryRun[]
+  expenses           Expense[]
+  expenseHeads       ExpenseHead[]
+  paymentModes       PaymentMode[]
+  cardSettlements    CardSettlement[]
+  auditLogs          AuditLog[]
+  loginLogs          LoginLog[]
+
+  @@index([isActive])
+  @@map("outlets")
+}
+
+/// Legal entity that owns one or more outlets. Its invoice identity is shared
+/// rather than duplicated on individual outlets.
+model Firm {
+  id                String   @id @default(cuid())
+  name              String
+  legalName         String?
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  stateCode         String?
+  pincode           String?
+  gstin             String?
+  pan               String?
+  logoUrl           String?
+  bankName          String?
+  bankAccountName   String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  invoiceTerms      String?
+  declarationText   String?
+  signatureUrl      String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  outlets        Outlet[]
+  documentSeries FirmDocumentSeries[]
+
+  @@map("firms")
+}
+
+model FirmDocumentSeries {
+  id           String   @id @default(cuid())
+  firmId       String
+  documentType String
+  prefix       String   @default("")
+  suffix       String   @default("")
+  padding      Int      @default(5)
+  nextNumber   Int      @default(1)
+  resetYearly  Boolean  @default(true)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  firm Firm @relation(fields: [firmId], references: [id], onDelete: Cascade)
+
+  @@unique([firmId, documentType])
+  @@map("firm_document_series")
+}
+
+// =============================================================================
+// USERS, ROLES, PERMISSIONS
+// =============================================================================
+
+model Role {
+  id          String   @id @default(cuid())
+  code        RoleCode @unique
+  name        String
+  description String?
+  /// System roles cannot be deleted or renamed.
+  isSystem    Boolean  @default(true)
+  /// AUDITOR: the server refuses to grant any write action to this role.
+  isReadOnly  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions Permission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id         String     @id @default(cuid())
+  roleId     String
+  module     ModuleName
+  canView    Boolean    @default(false)
+  canAdd     Boolean    @default(false)
+  canModify  Boolean    @default(false)
+  canDelete  Boolean    @default(false)
+  canApprove Boolean    @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, module])
+  @@index([module])
+  @@map("permissions")
+}
+
+/// Per-user override of the role grant. INHERIT means "use the role value".
+model UserPermission {
+  id     String     @id @default(cuid())
+  userId String
+  module ModuleName
+
+  view    PermissionEffect @default(INHERIT)
+  add     PermissionEffect @default(INHERIT)
+  modify  PermissionEffect @default(INHERIT)
+  delete  PermissionEffect @default(INHERIT)
+  approve PermissionEffect @default(INHERIT)
+
+  reason    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+  @@index([module])
+  @@map("user_permissions")
+}
+
+/// Per-user route/form access. INHERIT follows the module permission.
+model UserScreenPermission {
+  id        String           @id @default(cuid())
+  userId    String
+  screenKey String
+  effect    PermissionEffect @default(INHERIT)
+  reason    String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, screenKey])
+  @@index([screenKey])
+  @@map("user_screen_permissions")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  email        String?    @unique
+  phone        String?
+  name         String
+  passwordHash String
+  roleId       String
+  status       UserStatus @default(ACTIVE)
+
+  /// Outlet shown on login; must be one of the linked outlets.
+  defaultOutletId String?
+
+  /// Per-user date lock. Null = unbounded on that side.
+  lockFromDate DateTime? @db.Date
+  lockToDate   DateTime? @db.Date
+
+  theme  ThemePreference @default(SYSTEM)
+  locale String          @default("en")
+
+  mustChangePassword Boolean   @default(false)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  passwordChangedAt  DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  role                 Role                   @relation(fields: [roleId], references: [id])
+  outlets              UserOutlet[]
+  permissions          UserPermission[]
+  screenPermissions    UserScreenPermission[]
+  loginLogs            LoginLog[]
+  auditLogs            AuditLog[]
+  employee             Employee?
+  shiftEntriesCreated  ShiftEntry[]           @relation("ShiftEntryCreatedBy")
+  shiftEntriesApproved ShiftEntry[]           @relation("ShiftEntryApprovedBy")
+  vouchersCreated      Voucher[]              @relation("VoucherCreatedBy")
+  vouchersApproved     Voucher[]              @relation("VoucherApprovedBy")
+  remindersAssigned    Reminder[]             @relation("ReminderAssignedTo")
+
+  @@index([roleId])
+  @@index([status])
+  @@map("users")
+}
+
+/// A user may work at more than one outlet.
+model UserOutlet {
+  id       String @id @default(cuid())
+  userId   String
+  outletId String
+
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, outletId])
+  @@index([outletId])
+  @@map("user_outlets")
+}
+
+model LoginLog {
+  id       String  @id @default(cuid())
+  outletId String?
+  userId   String?
+  /// Stored exactly as typed, so failed logins for unknown users are still logged.
+  username String
+
+  success       Boolean
+  failureReason String?
+  ipAddress     String?
+  userAgent     String?
+  device        String?
+  sessionId     String?
+  loggedOutAt   DateTime?
+
+  attemptedAt DateTime @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  outlet Outlet? @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@index([outletId, attemptedAt])
+  @@index([userId, attemptedAt])
+  @@index([username, attemptedAt])
+  @@index([success, attemptedAt])
+  @@map("login_logs")
+}
+
+model AuditLog {
+  id       String  @id @default(cuid())
+  outletId String?
+  userId   String?
+
+  tableName    String
+  recordId     String
+  action       AuditAction
+  /// Business date of the affected record, when it has one.
+  businessDate DateTime?   @db.Date
+
+  oldValue      Json?
+  newValue      Json?
+  /// Column names that actually changed, for fast diff rendering.
+  changedFields String[]
+  reason        String?
+
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  outlet Outlet? @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@index([outletId, createdAt])
+  @@index([tableName, recordId])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// SETTINGS AND NUMBERING
+// =============================================================================
+
+/// No statutory rate is hard-coded. Every rate lives here with a labelled
+/// default. outletId null = global default, overridden by an outlet row.
+model Setting {
+  id       String  @id @default(cuid())
+  outletId String?
+
+  key          String
+  valueType    SettingValueType @default(STRING)
+  value        String
+  /// The shipped default, kept so the UI can show "default: 0.75 %".
+  defaultValue String?
+  label        String
+  description  String?
+  group        String           @default("general")
+  unit         String?
+  /// Statutory rates are flagged so a compliance review can list them.
+  isStatutory  Boolean          @default(false)
+  isEditable   Boolean          @default(true)
+
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet Outlet? @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, key])
+  @@index([group])
+  @@map("settings")
+}
+
+model NumberSeries {
+  id       String @id @default(cuid())
+  outletId String
+
+  /// e.g. BILL, VOUCHER_SALES, RECEIPT, PURCHASE, CREDIT_SLIP
+  code          String
+  name          String
+  prefix        String  @default("")
+  suffix        String  @default("")
+  padding       Int     @default(5)
+  currentNumber Int     @default(0)
+  startNumber   Int     @default(1)
+  /// Reset the counter at the start of each financial year.
+  resetYearly   Boolean @default(true)
+  financialYear String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, code, financialYear])
+  @@map("number_series")
+}
+
+// =============================================================================
+// PRODUCTS AND PRICING
+// =============================================================================
+
+model Product {
+  id       String @id @default(cuid())
+  outletId String
+
+  code        String
+  name        String
+  nameTa      String?
+  type        UnitOfMeasure @default(LITRE)
+  productType ProductType
+  hsnCode     String?
+
+  /// Fuel is outside GST (VAT inclusive in the RSP); lubes are under GST.
+  vatPct             Decimal? @db.Decimal(7, 4)
+  gstPct             Decimal? @db.Decimal(7, 4)
+  cessPct            Decimal? @db.Decimal(7, 4)
+  exciseDutyPerLitre Decimal? @db.Decimal(12, 4)
+
+  /// Settings key that carries the permissible variation % for this product.
+  allowanceSettingKey String?
+
+  /// Weighted average cost per unit, 4 dp. Recomputed on every receipt.
+  weightedAvgCost Decimal  @default(0) @db.Decimal(14, 4)
+  reorderLevel    Decimal? @db.Decimal(16, 2)
+
+  isFuel           Boolean  @default(true)
+  isDensityTracked Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  priceHistory     PriceHistory[]
+  tanks            Tank[]
+  nozzles          Nozzle[]
+  purchaseLines    PurchaseLine[]
+  decantations     Decantation[]
+  billLines        BillLine[]
+  creditSlips      CreditSlip[]
+  shortCredits     ShortCredit[]
+  stockMovements   StockMovement[]
+  inventoryBatches InventoryBatch[]
+  stockVariations  StockVariation[]
+  samples          Sample[]
+  densityReadings  DensityReading[]
+  nozzleReadings   NozzleReading[]
+  shiftCollections ShiftCollection[]
+
+  @@unique([outletId, code])
+  @@index([outletId, productType])
+  @@map("products")
+}
+
+model PriceHistory {
+  id        String @id @default(cuid())
+  outletId  String
+  productId String
+
+  /// Retail selling price, tax inclusive.
+  rate         Decimal  @db.Decimal(12, 2)
+  /// Landed purchase cost at the time of the change, for margin reporting.
+  purchaseRate Decimal? @db.Decimal(14, 4)
+  /// Tax embedded in the RSP, so net sale value can be derived.
+  taxComponent Decimal? @db.Decimal(12, 4)
+  dealerMargin Decimal? @db.Decimal(12, 4)
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  effectiveDate DateTime  @db.Date
+
+  reason      String?
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  outlet  Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, productId, effectiveFrom])
+  @@index([outletId, effectiveDate])
+  @@index([productId, effectiveFrom])
+  @@map("price_history")
+}
+
+// =============================================================================
+// TANKS, PUMPS, NOZZLES
+// =============================================================================
+
+model Tank {
+  id        String @id @default(cuid())
+  outletId  String
+  productId String
+
+  code              String
+  name              String
+  capacity          Decimal   @db.Decimal(16, 2)
+  /// Dead stock cannot be pumped out; excluded from sellable stock.
+  deadStock         Decimal   @default(0) @db.Decimal(16, 2)
+  /// Alert threshold in litres.
+  lowLevelAlert     Decimal?  @db.Decimal(16, 2)
+  diameterMm        Decimal?  @db.Decimal(10, 2)
+  lengthMm          Decimal?  @db.Decimal(10, 2)
+  /// Chart supplied by the calibration agency.
+  calibrationDate   DateTime? @db.Date
+  calibrationDueOn  DateTime? @db.Date
+  calibrationAgency String?
+
+  status    AssetStatus @default(ACTIVE)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  outlet          Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product         Product           @relation(fields: [productId], references: [id])
+  calibration     TankCalibration[]
+  nozzles         Nozzle[]
+  dipReadings     DipReading[]
+  densityReadings DensityReading[]
+  decantations    Decantation[]
+  stockVariations StockVariation[]
+  samples         Sample[]
+  movementsIn     StockMovement[]   @relation("StockMovementToTank")
+  movementsOut    StockMovement[]   @relation("StockMovementFromTank")
+  purchaseLines   PurchaseLine[]
+
+  @@unique([outletId, code])
+  @@index([outletId, productId])
+  @@map("tanks")
+}
+
+/// Calibration chart: dip in mm -> volume in litres. Linear interpolation
+/// between the two nearest rows.
+model TankCalibration {
+  id     String @id @default(cuid())
+  tankId String
+
+  dipMm     Decimal              @db.Decimal(8, 1)
+  litres    Decimal              @db.Decimal(16, 2)
+  chartType CalibrationChartType @default(FUEL)
+  isActive  Boolean              @default(true)
+
+  createdAt DateTime @default(now())
+
+  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  @@unique([tankId, chartType, dipMm])
+  @@index([tankId, chartType, dipMm])
+  @@map("tank_calibration")
+}
+
+model DispensingUnit {
+  id       String @id @default(cuid())
+  outletId String
+
+  code          String
+  name          String
+  make          String?
+  model         String?
+  serialNo      String?
+  installedOn   DateTime? @db.Date
+  stampingDate  DateTime? @db.Date
+  stampingDueOn DateTime? @db.Date
+
+  status    AssetStatus @default(ACTIVE)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  outlet  Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  nozzles Nozzle[]
+
+  @@unique([outletId, code])
+  @@map("dispensing_units")
+}
+
+model Nozzle {
+  id               String @id @default(cuid())
+  outletId         String
+  dispensingUnitId String
+  tankId           String
+  productId        String
+
+  code           String
+  name           String
+  /// Totaliser digit count; drives rollover handling in sale_litres.
+  meterDigits    Int     @default(8)
+  /// Reading at installation / at the last meter replacement.
+  initialReading Decimal @default(0) @db.Decimal(16, 2)
+  /// Latest known cumulative reading, retained as equipment master data.
+  currentReading Decimal @default(0) @db.Decimal(16, 2)
+
+  status    AssetStatus @default(ACTIVE)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  outlet         Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  dispensingUnit DispensingUnit  @relation(fields: [dispensingUnitId], references: [id])
+  tank           Tank            @relation(fields: [tankId], references: [id])
+  product        Product         @relation(fields: [productId], references: [id])
+  readings       NozzleReading[]
+  creditSlips    CreditSlip[]
+  bills          Bill[]
+  shortCredits   ShortCredit[]
+
+  @@unique([outletId, code])
+  @@index([dispensingUnitId])
+  @@index([tankId])
+  @@map("nozzles")
+}
+
+// =============================================================================
+// SHIFTS AND PUMP OPERATIONS
+// =============================================================================
+
+/// Definition of a shift slot, not an occurrence.
+model Shift {
+  id       String @id @default(cuid())
+  outletId String
+
+  code      String // SHIFT_1, SHIFT_2, SHIFT_3
+  name      String
+  nameTa    String?
+  startTime String // "06:00" local
+  endTime   String // "14:00" local
+  sequence  Int
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet     Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  entries    ShiftEntry[]
+  attendance Attendance[]
+
+  @@unique([outletId, code])
+  @@index([outletId, sequence])
+  @@map("shifts")
+}
+
+/// One shift on one date at one outlet. This is the spine of the system.
+model ShiftEntry {
+  id       String @id @default(cuid())
+  outletId String
+  shiftId  String
+
+  businessDate DateTime  @db.Date
+  openedAt     DateTime?
+  closedAt     DateTime?
+
+  cashierEmployeeId String?
+
+  // ---- Cash reconciliation (PROJECT_SPEC § 4.3) --------------------------
+  openingFloat       Decimal @default(0) @db.Decimal(18, 2)
+  /// Metered fuel sale value across every nozzle and rate segment.
+  saleAmount         Decimal @default(0) @db.Decimal(18, 2)
+  saleLitres         Decimal @default(0) @db.Decimal(16, 2)
+  /// Lubricants, AdBlue and merchandise sold over the counter.
+  counterSaleAmount  Decimal @default(0) @db.Decimal(18, 2)
+  /// saleAmount + counterSaleAmount.
+  totalSaleValue     Decimal @default(0) @db.Decimal(18, 2)
+  /// Cash + Card + UPI + Wallets + Credit + Own Use, from the settlements.
+  totalCollections   Decimal @default(0) @db.Decimal(18, 2)
+  creditSlipTotal    Decimal @default(0) @db.Decimal(18, 2)
+  digitalCollections Decimal @default(0) @db.Decimal(18, 2)
+  ownUseAmount       Decimal @default(0) @db.Decimal(18, 2)
+  cashExpenses       Decimal @default(0) @db.Decimal(18, 2)
+  cashToBank         Decimal @default(0) @db.Decimal(18, 2)
+  expectedCash       Decimal @default(0) @db.Decimal(18, 2)
+  actualCash         Decimal @default(0) @db.Decimal(18, 2)
+  /// totalCollections - totalSaleValue. Negative = SHORT.
+  shortExcess        Decimal @default(0) @db.Decimal(18, 2)
+  /// { "500": 12, "200": 4, ... } plus loose coins.
+  denominationCount  Json?
+  looseCoins         Decimal @default(0) @db.Decimal(18, 2)
+  /// Set when a rate change inside the shift window split it into segments.
+  hasRateSplit       Boolean @default(false)
+
+  status        ShiftEntryStatus @default(DRAFT)
+  remarks       String?
+  createdById   String?
+  approvedById  String?
+  approvedAt    DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet          Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  shift           Shift             @relation(fields: [shiftId], references: [id])
+  cashier         Employee?         @relation("ShiftEntryCashier", fields: [cashierEmployeeId], references: [id])
+  createdBy       User?             @relation("ShiftEntryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy      User?             @relation("ShiftEntryApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  nozzleReadings  NozzleReading[]
+  dipReadings     DipReading[]
+  densityReadings DensityReading[]
+  creditSlips     CreditSlip[]
+  shortCredits    ShortCredit[]
+  bills           Bill[]
+  expenses        Expense[]
+  stockVariations StockVariation[]
+  stockMovements  StockMovement[]
+  vouchers        Voucher[]
+  settlements     ShiftSettlement[]
+
+  /// One entry per shift per date per outlet — the headline constraint.
+  @@unique([outletId, businessDate, shiftId])
+  @@index([outletId, businessDate])
+  @@index([status])
+  @@map("shift_entries")
+}
+
+/// One salesman's account of one shift: what they sold against what they
+/// handed over. The short/excess computed here posts to the Short & Excess
+/// ledger against that salesman and is recovered in payroll.
+model ShiftSettlement {
+  id           String @id @default(cuid())
+  outletId     String
+  shiftEntryId String
+  employeeId   String
+
+  businessDate DateTime @db.Date
+
+  /// Nozzle sale value allocated to this salesman, plus counter sales.
+  nozzleSaleAmount  Decimal @default(0) @db.Decimal(18, 2)
+  nozzleSaleLitres  Decimal @default(0) @db.Decimal(16, 2)
+  counterSaleAmount Decimal @default(0) @db.Decimal(18, 2)
+  totalSaleValue    Decimal @default(0) @db.Decimal(18, 2)
+
+  /// What the salesman declares they are handing over in notes and coins.
+  declaredCash           Decimal @default(0) @db.Decimal(18, 2)
+  /// { "500": 12, "200": 4, "100": 9, "50": 3, "20": 5, "10": 11 }
+  denominationCount      Json?
+  coinsAmount            Decimal @default(0) @db.Decimal(18, 2)
+  /// Sum of the grid. Must equal declaredCash, or the difference is
+  /// acknowledged in writing before the settlement can be saved.
+  denominationTotal      Decimal @default(0) @db.Decimal(18, 2)
+  denominationDifference Decimal @default(0) @db.Decimal(18, 2)
+  differenceAcknowledged Boolean @default(false)
+  differenceNote         String?
+
+  cardTotal    Decimal @default(0) @db.Decimal(18, 2)
+  upiTotal     Decimal @default(0) @db.Decimal(18, 2)
+  walletTotal  Decimal @default(0) @db.Decimal(18, 2)
+  creditTotal  Decimal @default(0) @db.Decimal(18, 2)
+  ownUseTotal  Decimal @default(0) @db.Decimal(18, 2)
+  expenseTotal Decimal @default(0) @db.Decimal(18, 2)
+
+  /// Cash + Card + UPI + Wallets + Credit + Own Use (+ shift expenses paid
+  /// out of the salesman's cash, which they no longer hold).
+  totalCollections Decimal @default(0) @db.Decimal(18, 2)
+  /// totalCollections - totalSaleValue. Negative = SHORT, recoverable.
+  shortExcess      Decimal @default(0) @db.Decimal(18, 2)
+  /// Below the configured tolerance no recovery voucher is raised.
+  withinTolerance  Boolean @default(true)
+
+  status       ShiftEntryStatus @default(DRAFT)
+  remarks      String?
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet      Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  shiftEntry  ShiftEntry        @relation(fields: [shiftEntryId], references: [id], onDelete: Cascade)
+  employee    Employee          @relation(fields: [employeeId], references: [id])
+  collections ShiftCollection[]
+  voucher     Voucher?
+
+  @@unique([shiftEntryId, employeeId])
+  @@index([outletId, businessDate])
+  @@index([employeeId, businessDate])
+  @@map("shift_settlements")
+}
+
+/// One collection line inside a settlement — a card batch, a UPI reference,
+/// a credit slip, an own-use issue or an expense paid from shift cash.
+model ShiftCollection {
+  id           String @id @default(cuid())
+  outletId     String
+  settlementId String
+
+  kind          CollectionKind
+  paymentModeId String?
+  amount        Decimal        @db.Decimal(18, 2)
+
+  /// Card / UPI / wallet: which machine or wallet, and the settlement slip.
+  machineOrWallet String?
+  referenceNo     String?
+  cardLast4       String?
+
+  /// Credit and own-use issues.
+  customerId String?
+  vehicleId  String?
+  slipNo     String?
+  quantity   Decimal? @db.Decimal(16, 2)
+  productId  String?
+
+  /// Expenses paid out of shift cash.
+  expenseHeadId String?
+  voucherRef    String?
+  narration     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet      Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  settlement  ShiftSettlement  @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  paymentMode PaymentMode?     @relation(fields: [paymentModeId], references: [id])
+  customer    Customer?        @relation(fields: [customerId], references: [id])
+  vehicle     CustomerVehicle? @relation(fields: [vehicleId], references: [id])
+  product     Product?         @relation(fields: [productId], references: [id])
+  expenseHead ExpenseHead?     @relation(fields: [expenseHeadId], references: [id])
+
+  @@index([settlementId])
+  @@index([outletId, kind])
+  @@map("shift_collections")
+}
+
+/// Nozzle totaliser readings, chained so an opening reading can never be
+/// re-typed: prevReadingId is @unique, so each reading can be the predecessor
+/// of at most one successor — a strict linked list per nozzle, enforced by
+/// the database, not by application code.
+model NozzleReading {
+  id           String @id @default(cuid())
+  outletId     String
+  shiftEntryId String
+  nozzleId     String
+  productId    String
+
+  businessDate DateTime @db.Date
+
+  /// A mid-shift price change splits the shift into rate segments. Segment 1
+  /// runs from shift start to the changeover, segment 2 from there onward,
+  /// and the changeover meter reading is prompted for, not inferred.
+  rateSegment Int       @default(1)
+  segmentFrom DateTime?
+  segmentTo   DateTime?
+
+  /// Copied from prevReading.closingReading; never hand-entered when a
+  /// predecessor exists.
+  openingReading Decimal   @db.Decimal(16, 2)
+  closingReading Decimal   @db.Decimal(16, 2)
+  /// Dispensed into the 5-litre measure and returned to the tank.
+  /// Reduces sale value; never reduces tank stock.
+  testingLitres  Decimal   @default(0) @db.Decimal(16, 2)
+  /// closing - opening - testing, with meter rollover applied.
+  saleLitres     Decimal   @default(0) @db.Decimal(16, 2)
+  rate           Decimal   @db.Decimal(12, 2)
+  saleAmount     Decimal   @default(0) @db.Decimal(18, 2)
+  /// True when the totaliser wrapped past its digit limit.
+  meterRollover  Boolean   @default(false)
+  /// A rollover claim is never self-service: a manager signs it off.
+  needsApproval  Boolean   @default(false)
+  approvedById   String?
+  approvedAt     DateTime?
+
+  /// Which salesman was on this nozzle for this segment.
+  salesmanEmployeeId String?
+
+  /// Nozzle withdrawn mid-shift (meter fault, no stock, maintenance).
+  outOfService       Boolean   @default(false)
+  outOfServiceAt     DateTime?
+  outOfServiceReason String?
+
+  /// Set when the sale is outside the nozzle's recent normal band. Advisory
+  /// only — the entry still saves.
+  varianceFlag String?
+
+  source  ReadingSource @default(MANUAL)
+  remarks String?
+
+  prevReadingId String? @unique
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet      Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  shiftEntry  ShiftEntry     @relation(fields: [shiftEntryId], references: [id], onDelete: Cascade)
+  nozzle      Nozzle         @relation(fields: [nozzleId], references: [id])
+  product     Product        @relation(fields: [productId], references: [id])
+  salesman    Employee?      @relation("NozzleReadingSalesman", fields: [salesmanEmployeeId], references: [id])
+  prevReading NozzleReading? @relation("NozzleReadingChain", fields: [prevReadingId], references: [id])
+  nextReading NozzleReading? @relation("NozzleReadingChain")
+
+  @@unique([shiftEntryId, nozzleId, rateSegment])
+  @@index([outletId, businessDate])
+  @@index([nozzleId, businessDate])
+  @@index([salesmanEmployeeId, businessDate])
+  @@map("nozzle_readings")
+}
+
+model DipReading {
+  id           String  @id @default(cuid())
+  outletId     String
+  tankId       String
+  shiftEntryId String?
+
+  businessDate DateTime       @db.Date
+  readingType  DipReadingType
+  readingAt    DateTime       @default(now())
+
+  fuelDipMm    Decimal  @db.Decimal(8, 1)
+  waterDipMm   Decimal  @default(0) @db.Decimal(8, 1)
+  /// Interpolated from tank_calibration.
+  fuelLitres   Decimal  @db.Decimal(16, 2)
+  waterLitres  Decimal  @default(0) @db.Decimal(16, 2)
+  netLitres    Decimal  @db.Decimal(16, 2)
+  temperatureC Decimal? @db.Decimal(5, 1)
+
+  measuredByEmployeeId String?
+  remarks              String?
+  createdById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  outlet     Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tank       Tank        @relation(fields: [tankId], references: [id])
+  shiftEntry ShiftEntry? @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  measuredBy Employee?   @relation("DipMeasuredBy", fields: [measuredByEmployeeId], references: [id])
+
+  @@unique([shiftEntryId, tankId, readingType])
+  @@index([outletId, businessDate])
+  @@index([tankId, businessDate])
+  @@map("dip_readings")
+}
+
+model DensityReading {
+  id           String  @id @default(cuid())
+  outletId     String
+  tankId       String
+  productId    String
+  shiftEntryId String?
+
+  businessDate DateTime @db.Date
+  readingAt    DateTime @default(now())
+
+  /// kg/m3, 1 dp.
+  observedDensity Decimal  @db.Decimal(6, 1)
+  temperatureC    Decimal  @db.Decimal(5, 1)
+  densityAt15C    Decimal  @db.Decimal(6, 1)
+  invoiceDensity  Decimal? @db.Decimal(6, 1)
+  /// densityAt15C - invoiceDensity; beyond tolerance raises a quality alert.
+  deviation       Decimal? @db.Decimal(6, 1)
+  withinTolerance Boolean  @default(true)
+
+  measuredByEmployeeId String?
+  remarks              String?
+  createdById          String?
+  createdAt            DateTime @default(now())
+
+  outlet     Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tank       Tank        @relation(fields: [tankId], references: [id])
+  product    Product     @relation(fields: [productId], references: [id])
+  shiftEntry ShiftEntry? @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  measuredBy Employee?   @relation("DensityMeasuredBy", fields: [measuredByEmployeeId], references: [id])
+
+  @@index([outletId, businessDate])
+  @@index([tankId, businessDate])
+  @@map("density_readings")
+}
+
+// =============================================================================
+// PURCHASES AND DECANTATION
+// =============================================================================
+
+model Supplier {
+  id       String @id @default(cuid())
+  outletId String
+
+  code          String
+  name          String
+  type          SupplierType @default(OTHER)
+  contactPerson String?
+  phone         String?
+  email         String?
+  addressLine1  String?
+  city          String?
+  state         String?
+  pincode       String?
+  gstin         String?
+  pan           String?
+  /// Ledger account for this supplier. Balances are derived, never stored.
+  accountId     String?      @unique
+  creditDays    Int          @default(0)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet       Outlet        @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  account      Account?      @relation(fields: [accountId], references: [id])
+  purchases    Purchase[]
+  payments     Payment[]
+  decantations Decantation[]
+  reminders    Reminder[]
+
+  @@unique([outletId, code])
+  @@map("suppliers")
+}
+
+model Purchase {
+  id         String @id @default(cuid())
+  outletId   String
+  supplierId String
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  businessDate DateTime  @db.Date
+  invoiceNo    String
+  invoiceDate  DateTime  @db.Date
+  dueDate      DateTime? @db.Date
+
+  vehicleNo       String?
+  driverName      String?
+  transporterName String?
+
+  /// Basic value before duties and taxes.
+  subTotal      Decimal @default(0) @db.Decimal(18, 2)
+  /// Excise / state duties billed on the invoice.
+  dutiesAmount  Decimal @default(0) @db.Decimal(18, 2)
+  /// Fuel is outside GST; lubes and freight are not. Intra-state fills
+  /// cgst+sgst, inter-state fills igst — never both.
+  cgstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  sgstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  igstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  vatAmount     Decimal @default(0) @db.Decimal(18, 2)
+  taxAmount     Decimal @default(0) @db.Decimal(18, 2)
+  /// TCS u/s 206C(1H), rate from settings.
+  tcsAmount     Decimal @default(0) @db.Decimal(18, 2)
+  freightAmount Decimal @default(0) @db.Decimal(18, 2)
+  otherCharges  Decimal @default(0) @db.Decimal(18, 2)
+  discount      Decimal @default(0) @db.Decimal(18, 2)
+  roundOff      Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount   Decimal @default(0) @db.Decimal(18, 2)
+
+  status        DocumentStatus @default(DRAFT)
+  remarks       String?
+  createdById   String?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet       Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  supplier     Supplier       @relation(fields: [supplierId], references: [id])
+  lines        PurchaseLine[]
+  decantations Decantation[]
+  voucher      Voucher?
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@unique([outletId, supplierId, invoiceNo])
+  @@index([outletId, businessDate])
+  @@index([status])
+  @@map("purchases")
+}
+
+/// One compartment of one tanker: a single invoice can carry several
+/// products into several tanks.
+model PurchaseLine {
+  id            String  @id @default(cuid())
+  purchaseId    String
+  productId     String
+  /// Tank this compartment is decanted into.
+  tankId        String?
+  compartmentNo String?
+
+  /// Quantity on the invoice, corrected to 15 C for fuel.
+  quantity       Decimal  @db.Decimal(16, 2)
+  quantityAt15C  Decimal? @db.Decimal(16, 2)
+  rate           Decimal  @db.Decimal(14, 4)
+  /// Landed cost per unit after freight and non-recoverable taxes.
+  landedCost     Decimal? @db.Decimal(14, 4)
+  invoiceDensity Decimal? @db.Decimal(6, 1)
+  temperatureC   Decimal? @db.Decimal(5, 1)
+
+  discount     Decimal @default(0) @db.Decimal(18, 2)
+  taxableValue Decimal @default(0) @db.Decimal(18, 2)
+  vatAmount    Decimal @default(0) @db.Decimal(18, 2)
+  gstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  cessAmount   Decimal @default(0) @db.Decimal(18, 2)
+  amount       Decimal @default(0) @db.Decimal(18, 2)
+
+  lineNo Int
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+  tank     Tank?    @relation(fields: [tankId], references: [id])
+
+  @@unique([purchaseId, lineNo])
+  @@index([productId])
+  @@index([tankId])
+  @@map("purchase_lines")
+}
+
+/// Unloading a tank lorry into an underground tank. PROJECT_SPEC § 4.6.
+model Decantation {
+  id         String  @id @default(cuid())
+  outletId   String
+  tankId     String
+  productId  String
+  purchaseId String?
+  supplierId String?
+
+  businessDate DateTime  @db.Date
+  startedAt    DateTime?
+  completedAt  DateTime?
+  /// Gate times, kept because they are what an OMC inspector asks for.
+  timeIn       DateTime?
+  timeOut      DateTime?
+
+  invoiceNo       String?
+  invoiceDate     DateTime? @db.Date
+  depot           String?
+  vehicleNo       String?
+  driverName      String?
+  transporterName String?
+  compartmentNo   String?
+  sealNoTop       String?
+  sealNoBottom    String?
+  sealNoIntact    Boolean   @default(true)
+
+  invoiceQty          Decimal  @db.Decimal(16, 2)
+  invoiceQtyAt15C     Decimal? @db.Decimal(16, 2)
+  invoiceDensity      Decimal? @db.Decimal(6, 1)
+  invoiceTemperatureC Decimal? @db.Decimal(5, 1)
+
+  dipBeforeMm      Decimal  @db.Decimal(8, 1)
+  dipAfterMm       Decimal  @db.Decimal(8, 1)
+  stockBefore      Decimal  @db.Decimal(16, 2)
+  stockAfter       Decimal  @db.Decimal(16, 2)
+  receivedQty      Decimal  @db.Decimal(16, 2)
+  receivedQtyAt15C Decimal? @db.Decimal(16, 2)
+
+  observedDensity  Decimal? @db.Decimal(6, 1)
+  temperatureC     Decimal? @db.Decimal(5, 1)
+  densityAt15C     Decimal? @db.Decimal(6, 1)
+  densityDeviation Decimal? @db.Decimal(6, 1)
+
+  /// Invoice Quantity - Decanted Quantity. Positive = loss.
+  transitLoss     Decimal @default(0) @db.Decimal(16, 2)
+  /// transitLoss / invoiceQty * 100.
+  lossPct         Decimal @default(0) @db.Decimal(9, 4)
+  allowedLoss     Decimal @default(0) @db.Decimal(16, 2)
+  excessLoss      Decimal @default(0) @db.Decimal(16, 2)
+  lossValue       Decimal @default(0) @db.Decimal(18, 2)
+  withinAllowance Boolean @default(true)
+
+  status                 DecantationStatus @default(DRAFT)
+  remarks                String?
+  supervisedByEmployeeId String?
+  createdById            String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  outlet       Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tank         Tank      @relation(fields: [tankId], references: [id])
+  product      Product   @relation(fields: [productId], references: [id])
+  purchase     Purchase? @relation(fields: [purchaseId], references: [id])
+  supplier     Supplier? @relation(fields: [supplierId], references: [id])
+  supervisedBy Employee? @relation("DecantationSupervisedBy", fields: [supervisedByEmployeeId], references: [id])
+  samples      Sample[]
+
+  @@index([outletId, businessDate])
+  @@index([tankId, businessDate])
+  @@index([vehicleNo, businessDate])
+  @@index([transporterName, businessDate])
+  @@map("decantations")
+}
+
+// =============================================================================
+// CUSTOMERS AND BILLING
+// =============================================================================
+
+model Customer {
+  id       String @id @default(cuid())
+  outletId String
+
+  code          String
+  name          String
+  type          CustomerType @default(RETAIL)
+  contactPerson String?
+  phone         String?
+  altPhone      String?
+  email         String?
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  state         String?
+  pincode       String?
+  gstin         String?
+  pan           String?
+
+  creditLimit        Decimal     @default(0) @db.Decimal(18, 2)
+  creditDays         Int         @default(0)
+  openingBalance     Decimal     @default(0) @db.Decimal(18, 2)
+  openingBalanceType BalanceType @default(DEBIT)
+  discountPerLitre   Decimal     @default(0) @db.Decimal(12, 2)
+  statementEmail     String?
+  statementMobile    String?
+  /// Ledger account. Outstanding is derived from voucher_lines, never stored.
+  accountId          String?     @unique
+
+  blockOnLimitBreach Boolean  @default(true)
+  isActive           Boolean  @default(true)
+  createdById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  account          Account?          @relation(fields: [accountId], references: [id])
+  vehicles         CustomerVehicle[]
+  bills            Bill[]
+  creditSlips      CreditSlip[]
+  shortCredits     ShortCredit[]
+  receipts         Receipt[]
+  payments         Payment[]
+  reminders        Reminder[]
+  shiftCollections ShiftCollection[]
+
+  @@unique([outletId, code])
+  @@index([outletId, type])
+  @@index([outletId, name])
+  @@map("customers")
+}
+
+model CustomerVehicle {
+  id         String @id @default(cuid())
+  customerId String
+
+  vehicleNo           String
+  make                String?
+  model               String?
+  fuelType            String?
+  driverName          String?
+  driverPhone         String?
+  /// Optional per-vehicle cap for fleet customers.
+  monthlyLimit        Decimal? @db.Decimal(18, 2)
+  /// Product codes allowed for this vehicle. These are validated against its
+  /// customer's outlet when credit is issued.
+  allowedProductCodes String[] @default([])
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  creditSlips      CreditSlip[]
+  bills            Bill[]
+  shiftCollections ShiftCollection[]
+  shortCredits     ShortCredit[]
+
+  @@unique([customerId, vehicleNo])
+  @@index([vehicleNo])
+  @@map("customer_vehicles")
+}
+
+model Bill {
+  id                 String  @id @default(cuid())
+  outletId           String
+  customerId         String?
+  vehicleId          String?
+  shiftEntryId       String?
+  salesmanEmployeeId String?
+  nozzleId           String?
+  originalBillId     String?
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  businessDate DateTime  @db.Date
+  billedAt     DateTime  @default(now())
+  dueDate      DateTime? @db.Date
+
+  type            BillType    @default(CASH)
+  invoiceKind     InvoiceKind @default(BILL_OF_SUPPLY)
+  channel         BillChannel @default(DESKTOP)
+  clientRequestId String?
+  vehicleNo       String?
+  driverName      String?
+  customerName    String?
+
+  subTotal      Decimal @default(0) @db.Decimal(18, 2)
+  discount      Decimal @default(0) @db.Decimal(18, 2)
+  taxableValue  Decimal @default(0) @db.Decimal(18, 2)
+  vatAmount     Decimal @default(0) @db.Decimal(18, 2)
+  gstAmount     Decimal @default(0) @db.Decimal(18, 2)
+  cgstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  sgstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  igstAmount    Decimal @default(0) @db.Decimal(18, 2)
+  cessAmount    Decimal @default(0) @db.Decimal(18, 2)
+  tcsAmount     Decimal @default(0) @db.Decimal(18, 2)
+  roundOff      Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount   Decimal @default(0) @db.Decimal(18, 2)
+  paidAmount    Decimal @default(0) @db.Decimal(18, 2)
+  amountInWords String
+
+  consolidationFrom   DateTime?            @db.Date
+  consolidationTo     DateTime?            @db.Date
+  consolidationFormat ConsolidationFormat?
+
+  printedAt   DateTime?
+  printedById String?
+  printCount  Int       @default(0)
+
+  irn               String?
+  acknowledgementNo String?
+  acknowledgementAt DateTime?
+  signedQr          String?
+  eInvoicePayload   Json?
+
+  cancellationRequestedById String?
+  cancellationRequestedAt   DateTime?
+  cancellationRequestReason String?
+  cancellationApprovedById  String?
+  cancellationApprovedAt    DateTime?
+
+  status        DocumentStatus @default(POSTED)
+  remarks       String?
+  createdById   String?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet               Outlet             @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  customer             Customer?          @relation(fields: [customerId], references: [id])
+  vehicle              CustomerVehicle?   @relation(fields: [vehicleId], references: [id])
+  shiftEntry           ShiftEntry?        @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  salesman             Employee?          @relation("BillSalesman", fields: [salesmanEmployeeId], references: [id])
+  nozzle               Nozzle?            @relation(fields: [nozzleId], references: [id])
+  originalBill         Bill?              @relation("BillCreditNotes", fields: [originalBillId], references: [id])
+  creditNotes          Bill[]             @relation("BillCreditNotes")
+  lines                BillLine[]
+  creditSlips          CreditSlip[]
+  convertedShortCredit ShortCredit?
+  voucher              Voucher?
+  settlements          BillPaymentMode[]
+  notifications        BillNotification[]
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@unique([outletId, clientRequestId])
+  @@index([outletId, businessDate])
+  @@index([customerId, businessDate])
+  @@index([salesmanEmployeeId, businessDate])
+  @@index([status])
+  @@map("bills")
+}
+
+model BillLine {
+  id          String  @id @default(cuid())
+  billId      String
+  productId   String
+  description String?
+
+  quantity        Decimal       @db.Decimal(16, 2)
+  rate            Decimal       @db.Decimal(12, 2)
+  unit            UnitOfMeasure @default(LITRE)
+  hsnCode         String?
+  discountPerUnit Decimal       @default(0) @db.Decimal(12, 2)
+  discount        Decimal       @default(0) @db.Decimal(18, 2)
+  taxableValue    Decimal       @default(0) @db.Decimal(18, 2)
+  vatPct          Decimal?      @db.Decimal(7, 4)
+  vatAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  gstPct          Decimal?      @db.Decimal(7, 4)
+  gstAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  cgstPct         Decimal?      @db.Decimal(7, 4)
+  cgstAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  sgstPct         Decimal?      @db.Decimal(7, 4)
+  sgstAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  igstPct         Decimal?      @db.Decimal(7, 4)
+  igstAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  cessPct         Decimal?      @db.Decimal(7, 4)
+  cessAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  amount          Decimal       @default(0) @db.Decimal(18, 2)
+  /// Cost snapshot at sale time, for gross-profit reporting.
+  costAtSale      Decimal?      @db.Decimal(14, 4)
+
+  lineNo Int
+
+  bill    Bill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([billId, lineNo])
+  @@index([productId])
+  @@map("bill_lines")
+}
+
+model ShortCredit {
+  id                 String  @id @default(cuid())
+  outletId           String
+  customerId         String?
+  vehicleId          String?
+  shiftEntryId       String?
+  salesmanEmployeeId String
+  nozzleId           String?
+  productId          String
+  convertedBillId    String? @unique
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+  businessDate DateTime  @db.Date
+  issuedAt     DateTime  @default(now())
+  dueDate      DateTime? @db.Date
+
+  customerName    String
+  mobile          String?
+  vehicleNo       String?
+  driverName      String?
+  quantity        Decimal @db.Decimal(16, 2)
+  rate            Decimal @db.Decimal(12, 2)
+  amount          Decimal @db.Decimal(18, 2)
+  recoveredAmount Decimal @default(0) @db.Decimal(18, 2)
+
+  status           ShortCreditStatus @default(ISSUED)
+  remarks          String?
+  resolutionReason String?
+  resolvedAt       DateTime?
+  resolvedById     String?
+  createdById      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  outlet        Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  customer      Customer?        @relation(fields: [customerId], references: [id])
+  vehicle       CustomerVehicle? @relation(fields: [vehicleId], references: [id])
+  shiftEntry    ShiftEntry?      @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  salesman      Employee         @relation("ShortCreditSalesman", fields: [salesmanEmployeeId], references: [id])
+  nozzle        Nozzle?          @relation(fields: [nozzleId], references: [id])
+  product       Product          @relation(fields: [productId], references: [id])
+  convertedBill Bill?            @relation(fields: [convertedBillId], references: [id])
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@index([outletId, businessDate])
+  @@index([outletId, status, businessDate])
+  @@index([customerId, businessDate])
+  @@map("short_credits")
+}
+
+model BillNotification {
+  id                String              @id @default(cuid())
+  outletId          String
+  billId            String
+  channel           NotificationChannel
+  recipient         String
+  provider          String
+  status            NotificationStatus  @default(PENDING)
+  providerMessageId String?
+  errorMessage      String?
+  attemptedAt       DateTime            @default(now())
+  sentAt            DateTime?
+
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, attemptedAt])
+  @@index([billId, channel])
+  @@map("bill_notifications")
+}
+
+/// How a bill was settled — a bill may split across modes (MIXED).
+model BillPaymentMode {
+  id            String @id @default(cuid())
+  billId        String
+  paymentModeId String
+
+  amount       Decimal @db.Decimal(18, 2)
+  referenceNo  String?
+  cardLast4    String?
+  approvalCode String?
+
+  createdAt DateTime @default(now())
+
+  bill        Bill        @relation(fields: [billId], references: [id], onDelete: Cascade)
+  paymentMode PaymentMode @relation(fields: [paymentModeId], references: [id])
+
+  @@index([billId])
+  @@index([paymentModeId])
+  @@map("bill_payment_modes")
+}
+
+/// Paper chit signed at the nozzle, converted to a bill later.
+model CreditSlip {
+  id           String  @id @default(cuid())
+  outletId     String
+  customerId   String
+  vehicleId    String?
+  shiftEntryId String?
+  nozzleId     String?
+  productId    String
+  billId       String?
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  businessDate DateTime @db.Date
+  issuedAt     DateTime @default(now())
+
+  quantity Decimal @db.Decimal(16, 2)
+  rate     Decimal @db.Decimal(12, 2)
+  amount   Decimal @db.Decimal(18, 2)
+
+  slipNo              String?
+  driverName          String?
+  odometer            Int?
+  signatureRef        String?
+  /// Set when a MANAGER approved a credit-limit breach; also in audit_logs.
+  limitOverrideById   String?
+  limitOverrideReason String?
+
+  isBilled           Boolean        @default(false)
+  status             DocumentStatus @default(POSTED)
+  remarks            String?
+  issuedByEmployeeId String?
+  createdById        String?
+  cancelledById      String?
+  cancelledAt        DateTime?
+  cancelReason       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet     Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  customer   Customer         @relation(fields: [customerId], references: [id])
+  vehicle    CustomerVehicle? @relation(fields: [vehicleId], references: [id])
+  shiftEntry ShiftEntry?      @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  nozzle     Nozzle?          @relation(fields: [nozzleId], references: [id])
+  product    Product          @relation(fields: [productId], references: [id])
+  bill       Bill?            @relation(fields: [billId], references: [id])
+  issuedBy   Employee?        @relation("CreditSlipIssuedBy", fields: [issuedByEmployeeId], references: [id])
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@index([outletId, businessDate])
+  @@index([customerId, businessDate])
+  @@index([isBilled])
+  @@map("credit_slips")
+}
+
+// =============================================================================
+// MONEY IN / MONEY OUT
+// =============================================================================
+
+model PaymentMode {
+  id       String @id @default(cuid())
+  outletId String
+
+  code String
+  name String
+  type PaymentModeType
+
+  /// Ledger account this mode settles into (cash in hand, bank, card recv).
+  accountId         String?
+  /// Merchant discount rate on card/UPI, deducted at settlement.
+  mdrPct            Decimal? @db.Decimal(7, 4)
+  settlementDays    Int      @default(0)
+  requiresReference Boolean  @default(false)
+
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  account          Account?          @relation(fields: [accountId], references: [id])
+  billSettlements  BillPaymentMode[]
+  shiftCollections ShiftCollection[]
+  receipts         Receipt[]
+  payments         Payment[]
+  expenses         Expense[]
+  cardSettlements  CardSettlement[]
+
+  @@unique([outletId, code])
+  @@map("payment_modes")
+}
+
+/// Money received — almost always from a credit customer.
+model Receipt {
+  id            String  @id @default(cuid())
+  outletId      String
+  customerId    String?
+  paymentModeId String
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  businessDate DateTime @db.Date
+  receivedAt   DateTime @default(now())
+
+  amount          Decimal @db.Decimal(18, 2)
+  tdsAmount       Decimal @default(0) @db.Decimal(18, 2)
+  discountAllowed Decimal @default(0) @db.Decimal(18, 2)
+  /// Amount not yet allocated against a bill.
+  unallocated     Decimal @default(0) @db.Decimal(18, 2)
+
+  referenceNo String?
+  chequeNo    String?
+  chequeDate  DateTime? @db.Date
+  bankName    String?
+
+  status        DocumentStatus @default(POSTED)
+  remarks       String?
+  createdById   String?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet      Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  customer    Customer?   @relation(fields: [customerId], references: [id])
+  paymentMode PaymentMode @relation(fields: [paymentModeId], references: [id])
+  voucher     Voucher?
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@index([outletId, businessDate])
+  @@index([customerId, businessDate])
+  @@map("receipts")
+}
+
+/// Money paid out — supplier, employee or any ledger account.
+model Payment {
+  id            String  @id @default(cuid())
+  outletId      String
+  supplierId    String?
+  customerId    String?
+  employeeId    String?
+  accountId     String?
+  paymentModeId String
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  businessDate DateTime         @db.Date
+  paidAt       DateTime         @default(now())
+  direction    PaymentDirection @default(OUTWARD)
+
+  amount    Decimal @db.Decimal(18, 2)
+  tdsAmount Decimal @default(0) @db.Decimal(18, 2)
+
+  referenceNo String?
+  chequeNo    String?
+  chequeDate  DateTime? @db.Date
+  bankName    String?
+
+  status        DocumentStatus @default(POSTED)
+  remarks       String?
+  createdById   String?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet      Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  supplier    Supplier?   @relation(fields: [supplierId], references: [id])
+  customer    Customer?   @relation(fields: [customerId], references: [id])
+  employee    Employee?   @relation(fields: [employeeId], references: [id])
+  account     Account?    @relation(fields: [accountId], references: [id])
+  paymentMode PaymentMode @relation(fields: [paymentModeId], references: [id])
+  voucher     Voucher?
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@index([outletId, businessDate])
+  @@index([supplierId, businessDate])
+  @@map("payments")
+}
+
+model Expense {
+  id            String  @id @default(cuid())
+  outletId      String
+  accountId     String
+  paymentModeId String?
+  shiftEntryId  String?
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  businessDate DateTime @db.Date
+  category     String?
+  description  String
+
+  amount      Decimal @db.Decimal(18, 2)
+  gstAmount   Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal @db.Decimal(18, 2)
+
+  /// Paid from the shift till rather than from bank — affects expected cash.
+  paidFromTill  Boolean @default(false)
+  billRef       String?
+  vendorName    String?
+  attachmentUrl String?
+
+  status        DocumentStatus @default(POSTED)
+  createdById   String?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet      Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  account     Account      @relation(fields: [accountId], references: [id])
+  paymentMode PaymentMode? @relation(fields: [paymentModeId], references: [id])
+  shiftEntry  ShiftEntry?  @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  voucher     Voucher?
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@index([outletId, businessDate])
+  @@index([accountId, businessDate])
+  @@map("expenses")
+}
+
+/// Configurable expense categorisation. Posting remains against accountId;
+/// this master only controls the list offered to users.
+model ExpenseHead {
+  id          String   @id @default(cuid())
+  outletId    String
+  code        String
+  name        String
+  accountId   String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  account          Account?          @relation(fields: [accountId], references: [id])
+  shiftCollections ShiftCollection[]
+
+  @@unique([outletId, code])
+  @@index([outletId, isActive])
+  @@map("expense_heads")
+}
+
+/// Batch settlement of card / UPI receivables into the bank, net of MDR.
+model CardSettlement {
+  id            String  @id @default(cuid())
+  outletId      String
+  paymentModeId String
+  bankAccountId String?
+
+  businessDate   DateTime  @db.Date
+  settlementDate DateTime? @db.Date
+  batchNo        String?
+  terminalId     String?
+
+  grossAmount      Decimal @db.Decimal(18, 2)
+  mdrAmount        Decimal @default(0) @db.Decimal(18, 2)
+  gstOnMdr         Decimal @default(0) @db.Decimal(18, 2)
+  netAmount        Decimal @db.Decimal(18, 2)
+  /// grossAmount less what the bank actually credited.
+  differenceAmount Decimal @default(0) @db.Decimal(18, 2)
+  txnCount         Int     @default(0)
+
+  status      CardSettlementStatus @default(PENDING)
+  referenceNo String?
+  remarks     String?
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet      Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  paymentMode PaymentMode @relation(fields: [paymentModeId], references: [id])
+  bankAccount Account?    @relation(fields: [bankAccountId], references: [id])
+  voucher     Voucher?
+
+  @@index([outletId, businessDate])
+  @@index([status])
+  @@map("card_settlements")
+}
+
+// =============================================================================
+// DOUBLE-ENTRY ACCOUNTS
+// =============================================================================
+
+model AccountGroup {
+  id       String  @id @default(cuid())
+  outletId String?
+  parentId String?
+
+  code             String
+  name             String
+  nature           AccountNature
+  /// Affects the balance sheet (true) or the P&L (false).
+  isBalanceSheet   Boolean          @default(true)
+  /// Schedule III presentation head for the balance sheet and P&L.
+  scheduleIIIHead  ScheduleIIIHead  @default(NONE)
+  /// Where movements on this group land on the cash flow statement.
+  cashFlowCategory CashFlowCategory @default(OPERATING)
+  /// Direct cost of goods sold — separated so gross profit is visible.
+  isDirectCost     Boolean          @default(false)
+  isSystem         Boolean          @default(false)
+  isActive         Boolean          @default(true)
+  sortOrder        Int              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet   Outlet?        @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  parent   AccountGroup?  @relation("AccountGroupTree", fields: [parentId], references: [id])
+  children AccountGroup[] @relation("AccountGroupTree")
+  accounts Account[]
+
+  @@unique([outletId, code])
+  @@index([parentId])
+  @@map("account_groups")
+}
+
+model Account {
+  id       String @id @default(cuid())
+  outletId String
+  groupId  String
+
+  code          String
+  name          String
+  nature        AccountNature
+  /// Normal balance side. Balances themselves are NEVER stored here.
+  normalBalance BalanceType
+
+  openingBalance     Decimal     @default(0) @db.Decimal(18, 2)
+  openingBalanceType BalanceType @default(DEBIT)
+  openingAsOn        DateTime?   @db.Date
+
+  /// Set on system accounts the posting service looks up by key,
+  /// e.g. CASH_IN_HAND, SALES_MS, STOCK_IN_TRADE, CASH_EXCESS_SUSPENSE.
+  systemKey String?
+
+  isBankAccount Boolean @default(false)
+  bankName      String?
+  accountNumber String?
+  ifsc          String?
+
+  isSystem  Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  group            AccountGroup      @relation(fields: [groupId], references: [id])
+  voucherLines     VoucherLine[]
+  partyVouchers    Voucher[]         @relation("VoucherParty")
+  customer         Customer?
+  supplier         Supplier?
+  employee         Employee?
+  paymentModes     PaymentMode[]
+  expenses         Expense[]
+  expenseHeads     ExpenseHead[]
+  payments         Payment[]
+  cardSettlements  CardSettlement[]
+  salaryComponents SalaryStructure[]
+
+  @@unique([outletId, code])
+  @@unique([outletId, systemKey])
+  @@index([outletId, groupId])
+  @@map("accounts")
+}
+
+/// Every financial event. Debits must equal credits before commit.
+model Voucher {
+  id       String @id @default(cuid())
+  outletId String
+
+  seriesCode   String
+  seriesNumber Int
+  docNumber    String
+
+  type         VoucherType
+  businessDate DateTime    @db.Date
+  narration    String?
+
+  totalDebit  Decimal @db.Decimal(18, 2)
+  totalCredit Decimal @db.Decimal(18, 2)
+
+  // ---- Source document (exactly one is set, or none for a manual journal) --
+  shiftEntryId      String?
+  shiftSettlementId String? @unique
+  billId            String? @unique
+  purchaseId        String? @unique
+  receiptId         String? @unique
+  paymentId         String? @unique
+  expenseId         String? @unique
+  stockVariationId  String? @unique
+  cardSettlementId  String? @unique
+  salaryRunId       String? @unique
+
+  // ---- Instrument details (cheque / NEFT / card reference) ---------------
+  instrumentType InstrumentType @default(CASH)
+  instrumentNo   String?
+  instrumentDate DateTime?      @db.Date
+  bankName       String?
+  /// The party ledger this voucher is "against", for the voucher register.
+  partyAccountId String?
+
+  /// Set on a voucher raised to reverse another (cancellation, rectification).
+  reversesVoucherId String? @unique
+
+  /// Idempotency key for postings that are derived rather than entered —
+  /// daily COGS, opening balances. Reposting the same key replaces, never
+  /// duplicates.
+  sourceKey String?
+
+  status        DocumentStatus @default(POSTED)
+  createdById   String?
+  approvedById  String?
+  approvedAt    DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet          Outlet              @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  lines           VoucherLine[]
+  attachments     VoucherAttachment[]
+  partyAccount    Account?            @relation("VoucherParty", fields: [partyAccountId], references: [id])
+  reverses        Voucher?            @relation("VoucherReversal", fields: [reversesVoucherId], references: [id])
+  reversedBy      Voucher?            @relation("VoucherReversal")
+  shiftEntry      ShiftEntry?         @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  shiftSettlement ShiftSettlement?    @relation(fields: [shiftSettlementId], references: [id], onDelete: SetNull)
+  bill            Bill?               @relation(fields: [billId], references: [id])
+  purchase        Purchase?           @relation(fields: [purchaseId], references: [id])
+  receipt         Receipt?            @relation(fields: [receiptId], references: [id])
+  payment         Payment?            @relation(fields: [paymentId], references: [id])
+  expense         Expense?            @relation(fields: [expenseId], references: [id])
+  stockVariation  StockVariation?     @relation(fields: [stockVariationId], references: [id])
+  cardSettlement  CardSettlement?     @relation(fields: [cardSettlementId], references: [id])
+  salaryRun       SalaryRun?          @relation(fields: [salaryRunId], references: [id])
+  createdBy       User?               @relation("VoucherCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy      User?               @relation("VoucherApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([outletId, seriesCode, seriesNumber])
+  @@unique([outletId, sourceKey])
+  @@index([outletId, businessDate])
+  @@index([outletId, type, businessDate])
+  /// Every dashboard panel joins on status; without this the planner falls
+  /// back to a sequential scan of the whole voucher table.
+  @@index([outletId, status, businessDate])
+  @@index([status])
+  @@map("vouchers")
+}
+
+model VoucherLine {
+  id        String @id @default(cuid())
+  outletId  String
+  voucherId String
+  accountId String
+
+  businessDate DateTime @db.Date
+  debit        Decimal  @default(0) @db.Decimal(18, 2)
+  credit       Decimal  @default(0) @db.Decimal(18, 2)
+  narration    String?
+
+  /// Optional analytical tags, for product-wise and cost-centre reporting.
+  productId  String?
+  employeeId String?
+  costCentre String?
+  /// Litres behind this line, so gross profit per litre is derivable
+  /// straight from the ledger rather than by joining back to stock.
+  quantity   Decimal? @db.Decimal(16, 2)
+
+  // ---- Bank reconciliation ------------------------------------------------
+  /// Set when the item appears on the bank statement.
+  isReconciled   Boolean   @default(false)
+  clearedOn      DateTime? @db.Date
+  bankRef        String?
+  reconciledById String?
+  reconciledAt   DateTime?
+
+  lineNo Int
+
+  outlet  Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([voucherId, lineNo])
+  @@index([outletId, businessDate])
+  @@index([accountId, businessDate])
+  @@index([accountId, isReconciled])
+  @@index([productId, businessDate])
+  /// Cash, outstanding and stock-value curves filter by outlet and account
+  /// together across the whole history.
+  @@index([outletId, accountId, businessDate])
+  @@map("voucher_lines")
+}
+
+/// Supporting document scanned against a voucher — the cheque, the bill,
+/// the bank advice. Uploaded through /api/upload.
+model VoucherAttachment {
+  id        String @id @default(cuid())
+  outletId  String
+  voucherId String
+
+  fileName    String
+  url         String
+  contentType String?
+  sizeBytes   Int?
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  outlet  Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@index([voucherId])
+  @@map("voucher_attachments")
+}
+
+// =============================================================================
+// STOCK
+// =============================================================================
+
+/// Every litre in or out. Book stock is the running sum of these.
+model StockMovement {
+  id        String @id @default(cuid())
+  outletId  String
+  productId String
+
+  fromTankId   String?
+  toTankId     String?
+  shiftEntryId String?
+  batchId      String?
+
+  businessDate DateTime          @db.Date
+  movedAt      DateTime          @default(now())
+  type         StockMovementType
+
+  /// Signed: positive = into stock, negative = out of stock.
+  quantity     Decimal  @db.Decimal(16, 2)
+  rate         Decimal  @default(0) @db.Decimal(14, 4)
+  value        Decimal  @default(0) @db.Decimal(18, 2)
+  /// Book balance after this movement, for fast reconciliation.
+  balanceAfter Decimal? @db.Decimal(16, 2)
+
+  /// Source document type + id, kept loose because many types feed stock.
+  sourceType String?
+  sourceId   String?
+  remarks    String?
+
+  isCancelled Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  outlet     Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product    Product         @relation(fields: [productId], references: [id])
+  fromTank   Tank?           @relation("StockMovementFromTank", fields: [fromTankId], references: [id])
+  toTank     Tank?           @relation("StockMovementToTank", fields: [toTankId], references: [id])
+  shiftEntry ShiftEntry?     @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  batch      InventoryBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  @@index([outletId, businessDate])
+  @@index([productId, businessDate])
+  @@index([sourceType, sourceId])
+  @@index([batchId, businessDate])
+  @@map("stock_movements")
+}
+
+/// Batch identity for lubricants, AdBlue, coolant and merchandise. Quantity
+/// and value are always derived from stock_movements, never stored here.
+model InventoryBatch {
+  id        String @id @default(cuid())
+  outletId  String
+  productId String
+
+  batchNo        String
+  mrp            Decimal?  @db.Decimal(12, 2)
+  purchaseRate   Decimal   @default(0) @db.Decimal(14, 4)
+  manufacturedOn DateTime? @db.Date
+  expiryDate     DateTime? @db.Date
+  barcode        String?
+  isActive       Boolean   @default(true)
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  outlet    Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id])
+  movements StockMovement[]
+
+  @@unique([outletId, productId, batchNo])
+  @@index([outletId, expiryDate])
+  @@map("inventory_batches")
+}
+
+/// Dip vs book, per tank per day. PROJECT_SPEC § 4.5.
+model StockVariation {
+  id           String  @id @default(cuid())
+  outletId     String
+  tankId       String
+  productId    String
+  shiftEntryId String?
+
+  businessDate DateTime @db.Date
+
+  openingStock  Decimal @db.Decimal(16, 2)
+  /// Decanted receipts, not invoice quantity.
+  receipts      Decimal @default(0) @db.Decimal(16, 2)
+  sales         Decimal @default(0) @db.Decimal(16, 2)
+  /// Issued without charge and NOT dispensed through a metered nozzle
+  /// (drum issues, generator). Nozzle-dispensed own use is already in sales.
+  ownUseLitres  Decimal @default(0) @db.Decimal(16, 2)
+  returnsLitres Decimal @default(0) @db.Decimal(16, 2)
+  /// Returned to the tank after the 5-litre test; never leaves stock.
+  testingLitres Decimal @default(0) @db.Decimal(16, 2)
+  sampleLitres  Decimal @default(0) @db.Decimal(16, 2)
+  transfersIn   Decimal @default(0) @db.Decimal(16, 2)
+  transfersOut  Decimal @default(0) @db.Decimal(16, 2)
+  bookStock     Decimal @db.Decimal(16, 2)
+  dipStock      Decimal @db.Decimal(16, 2)
+
+  /// dipStock - bookStock. Negative = loss.
+  variationLitres  Decimal @db.Decimal(16, 2)
+  /// variationLitres / (opening + receipts) * 100.
+  variationPct     Decimal @default(0) @db.Decimal(9, 4)
+  allowancePct     Decimal @db.Decimal(7, 4)
+  /// sales * allowancePct / 100.
+  allowedLitres    Decimal @db.Decimal(16, 2)
+  /// |variation| - allowed, floored at zero.
+  excessLossLitres Decimal @default(0) @db.Decimal(16, 2)
+  excessLossValue  Decimal @default(0) @db.Decimal(18, 2)
+  withinAllowance  Boolean @default(true)
+  /// Valued at purchase cost, not at selling price.
+  costPerLitre     Decimal @db.Decimal(14, 4)
+  variationValue   Decimal @db.Decimal(18, 2)
+
+  status       VariationStatus @default(PENDING)
+  remarks      String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdById  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet     Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tank       Tank        @relation(fields: [tankId], references: [id])
+  product    Product     @relation(fields: [productId], references: [id])
+  shiftEntry ShiftEntry? @relation(fields: [shiftEntryId], references: [id], onDelete: SetNull)
+  voucher    Voucher?
+
+  @@unique([outletId, tankId, businessDate, shiftEntryId])
+  @@index([outletId, businessDate])
+  @@index([status])
+  @@map("stock_variations")
+}
+
+/// Retained samples — the outlet's defence in an adulteration dispute.
+model Sample {
+  id            String  @id @default(cuid())
+  outletId      String
+  tankId        String?
+  productId     String
+  decantationId String?
+
+  businessDate DateTime   @db.Date
+  type         SampleType
+  quantity     Decimal    @db.Decimal(16, 2)
+
+  observedDensity   Decimal?  @db.Decimal(6, 1)
+  densityAt15C      Decimal?  @db.Decimal(6, 1)
+  temperatureC      Decimal?  @db.Decimal(5, 1)
+  sealNo            String?
+  /// Tanker and invoice the sample was drawn from — what an inspector
+  /// cross-checks the retained sample against.
+  tankerNo          String?
+  invoiceNo         String?
+  sealedBy          String?
+  retainedTill      DateTime? @db.Date
+  storageRef        String?
+  drawnByEmployeeId String?
+  witnessName       String?
+  /// Filter-paper / visual result.
+  result            String?
+  remarks           String?
+
+  stickerPrintedAt DateTime?
+  isDisposed       Boolean   @default(false)
+  disposedAt       DateTime?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  outlet      Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tank        Tank?        @relation(fields: [tankId], references: [id])
+  product     Product      @relation(fields: [productId], references: [id])
+  decantation Decantation? @relation(fields: [decantationId], references: [id])
+  drawnBy     Employee?    @relation("SampleDrawnBy", fields: [drawnByEmployeeId], references: [id])
+
+  @@index([outletId, businessDate])
+  @@index([tankId, businessDate])
+  @@map("samples")
+}
+
+// =============================================================================
+// COMPLIANCE
+// =============================================================================
+
+model Reminder {
+  id         String  @id @default(cuid())
+  outletId   String
+  /// Optional link to the party the reminder is about.
+  customerId String?
+  supplierId String?
+  employeeId String?
+
+  type        ReminderType
+  title       String
+  notes       String?
+  description String?
+  dueDate     DateTime     @db.Date
+  /// Local time of day, "HH:mm". Null means all day.
+  dueTime     String?
+  /// Days before dueDate to start alerting.
+  alertBefore Int          @default(30)
+  amount      Decimal?     @db.Decimal(18, 2)
+  referenceNo String?
+
+  assignedToId  String?
+  status        ReminderStatus @default(OPEN)
+  snoozedTill   DateTime?      @db.Date
+  completedAt   DateTime?
+  completedNote String?
+
+  repeat       RepeatFrequency @default(NONE)
+  isRecurring  Boolean         @default(false)
+  recurMonths  Int?
+  /// Set on the reminder that was rolled forward, so a repeat chain is
+  /// traceable rather than looking like duplicate data entry.
+  rolledFromId String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet     Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+  assignedTo User?     @relation("ReminderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([outletId, dueDate])
+  @@index([status, dueDate])
+  @@map("reminders")
+}
+
+model Inspection {
+  id       String @id @default(cuid())
+  outletId String
+
+  type                 InspectionType
+  businessDate         DateTime       @db.Date
+  inspectorName        String?
+  inspectorDesignation String?
+  organisation         String?
+  authority            String?
+  referenceNo          String?
+
+  result                  InspectionResult @default(PENDING)
+  observations            String?
+  actionTaken             String?
+  correctiveAction        String?
+  correctiveActionDueDate DateTime?        @db.Date
+  /// Fine or penalty levied, if any.
+  penaltyAmount           Decimal?         @db.Decimal(18, 2)
+  followUpDate            DateTime?        @db.Date
+  attachmentUrl           String?
+  signatureUrl            String?
+  completedAt             DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  items  InspectionItem[]
+  photos InspectionPhoto[]
+
+  @@index([outletId, businessDate])
+  @@index([type, businessDate])
+  @@map("inspections")
+}
+
+model InspectionItem {
+  id               String               @id @default(cuid())
+  outletId         String
+  inspectionId     String
+  code             String
+  category         String
+  label            String
+  result           InspectionItemResult @default(PASS)
+  measuredValue    Decimal?             @db.Decimal(12, 2)
+  expectedValue    Decimal?             @db.Decimal(12, 2)
+  unit             String?
+  observation      String?
+  correctiveAction String?
+  sortOrder        Int                  @default(0)
+
+  outlet     Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@unique([inspectionId, code])
+  @@index([outletId, inspectionId])
+  @@map("inspection_items")
+}
+
+model InspectionPhoto {
+  id           String   @id @default(cuid())
+  outletId     String
+  inspectionId String
+  url          String
+  caption      String?
+  createdAt    DateTime @default(now())
+
+  outlet     Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, inspectionId])
+  @@map("inspection_photos")
+}
+
+// =============================================================================
+// PAYROLL
+// =============================================================================
+
+model Employee {
+  id       String  @id @default(cuid())
+  outletId String
+  userId   String? @unique
+
+  code         String
+  name         String
+  nameTa       String?
+  designation  String?
+  department   String?
+  phone        String?
+  altPhone     String?
+  email        String?
+  photoUrl     String?
+  addressLine1 String?
+  city         String?
+  state        String?
+  pincode      String?
+
+  dateOfBirth DateTime? @db.Date
+  joinedOn    DateTime  @db.Date
+  leftOn      DateTime? @db.Date
+
+  aadhaarLast4  String?
+  panNumber     String?
+  uanNumber     String?
+  esicNumber    String?
+  bankName      String?
+  accountNumber String?
+  ifsc          String?
+
+  /// Ledger account for salary payable / advances.
+  accountId String? @unique
+
+  status      EmployeeStatus @default(ACTIVE)
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  account          Account?          @relation(fields: [accountId], references: [id])
+  attendance       Attendance[]
+  salaryStructures SalaryStructure[]
+  salaryLines      SalaryLine[]
+  payments         Payment[]
+  shiftEntries     ShiftEntry[]      @relation("ShiftEntryCashier")
+  settlements      ShiftSettlement[]
+  nozzleReadings   NozzleReading[]   @relation("NozzleReadingSalesman")
+  reminders        Reminder[]
+  creditSlips      CreditSlip[]      @relation("CreditSlipIssuedBy")
+  bills            Bill[]            @relation("BillSalesman")
+  shortCredits     ShortCredit[]     @relation("ShortCreditSalesman")
+  dipReadings      DipReading[]      @relation("DipMeasuredBy")
+  densityReadings  DensityReading[]  @relation("DensityMeasuredBy")
+  decantations     Decantation[]     @relation("DecantationSupervisedBy")
+  samples          Sample[]          @relation("SampleDrawnBy")
+
+  @@unique([outletId, code])
+  @@index([outletId, status])
+  @@map("employees")
+}
+
+model Attendance {
+  id         String  @id @default(cuid())
+  outletId   String
+  employeeId String
+  shiftId    String?
+
+  businessDate DateTime         @db.Date
+  status       AttendanceStatus @default(PRESENT)
+
+  inTime        DateTime?
+  outTime       DateTime?
+  workedHours   Decimal?  @db.Decimal(6, 2)
+  overtimeHours Decimal   @default(0) @db.Decimal(6, 2)
+  lateMinutes   Int       @default(0)
+  remarks       String?
+
+  markedById String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  outlet   Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift    Shift?   @relation(fields: [shiftId], references: [id])
+
+  @@unique([employeeId, businessDate, shiftId])
+  @@index([outletId, businessDate])
+  @@map("attendance")
+}
+
+/// One row per salary component per employee, effective-dated.
+model SalaryStructure {
+  id         String  @id @default(cuid())
+  outletId   String
+  employeeId String
+  accountId  String?
+
+  componentCode String
+  componentName String
+  type          SalaryComponentType
+
+  /// Either a flat amount or a percentage of another component.
+  amount       Decimal? @db.Decimal(18, 2)
+  percentOf    String?
+  percentage   Decimal? @db.Decimal(7, 4)
+  /// Per-day or per-hour rates for daily-wage staff.
+  perDayRate   Decimal? @db.Decimal(18, 2)
+  perHourRate  Decimal? @db.Decimal(18, 2)
+  perShiftRate Decimal? @db.Decimal(18, 2)
+  perLitreRate Decimal? @db.Decimal(12, 4)
+
+  isStatutory Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet   Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  account  Account? @relation(fields: [accountId], references: [id])
+
+  @@unique([employeeId, componentCode, effectiveFrom])
+  @@index([outletId, effectiveFrom])
+  @@map("salary_structures")
+}
+
+model SalaryRun {
+  id       String @id @default(cuid())
+  outletId String
+
+  /// First day of the payroll month.
+  businessDate DateTime @db.Date
+  periodMonth  Int
+  periodYear   Int
+  fromDate     DateTime @db.Date
+  toDate       DateTime @db.Date
+
+  totalEarnings     Decimal @default(0) @db.Decimal(18, 2)
+  totalDeductions   Decimal @default(0) @db.Decimal(18, 2)
+  totalEmployerCost Decimal @default(0) @db.Decimal(18, 2)
+  netPayable        Decimal @default(0) @db.Decimal(18, 2)
+  employeeCount     Int     @default(0)
+
+  status       SalaryRunStatus @default(DRAFT)
+  remarks      String?
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  paidAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet  Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  lines   SalaryLine[]
+  voucher Voucher?
+
+  @@unique([outletId, periodYear, periodMonth])
+  @@index([outletId, businessDate])
+  @@map("salary_runs")
+}
+
+model SalaryLine {
+  id          String @id @default(cuid())
+  salaryRunId String
+  employeeId  String
+
+  daysPayable   Decimal @default(0) @db.Decimal(6, 2)
+  daysPresent   Decimal @default(0) @db.Decimal(6, 2)
+  daysAbsent    Decimal @default(0) @db.Decimal(6, 2)
+  overtimeHours Decimal @default(0) @db.Decimal(6, 2)
+
+  grossEarnings   Decimal @default(0) @db.Decimal(18, 2)
+  totalDeductions Decimal @default(0) @db.Decimal(18, 2)
+  advanceRecovery Decimal @default(0) @db.Decimal(18, 2)
+  /// Cash shorts recovered from this employee in the period.
+  shortRecovery   Decimal @default(0) @db.Decimal(18, 2)
+  netPay          Decimal @default(0) @db.Decimal(18, 2)
+
+  /// Component-wise breakdown: [{ code, name, type, amount }]
+  components Json?
+  isPaid     Boolean   @default(false)
+  paidAt     DateTime?
+  remarks    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salaryRun SalaryRun @relation(fields: [salaryRunId], references: [id], onDelete: Cascade)
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+
+  @@unique([salaryRunId, employeeId])
+  @@index([employeeId])
+  @@map("salary_lines")
+}

@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { auth } from "@/server/auth";
+
+export async function POST(request: Request) { const session = await auth(); if (!session?.user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 }); const body = await request.json() as { outletId?: string }; const selected = body.outletId; if (selected !== "all" && (!selected || !session.user.outletIds.includes(selected))) return NextResponse.json({ error: "Outlet not assigned" }, { status: 403 }); if (selected === "all" && session.user.role !== "OWNER") return NextResponse.json({ error: "Only OWNER can consolidate outlets" }, { status: 403 }); const response = NextResponse.json({ ok: true }); response.cookies.set("pb-outlet", selected, { httpOnly: true, sameSite: "lax", path: "/" }); return response; }

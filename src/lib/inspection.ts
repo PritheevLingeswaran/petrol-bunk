@@ -1,0 +1,72 @@
+export const INSPECTION_CHECKLIST = [
+  {
+    code: "NOZZLE_ACCURACY",
+    category: "Dispensing",
+    label: "Nozzle accuracy against 5 L measure",
+    unit: "ml",
+    expectedValue: "0",
+    sortOrder: 10,
+  },
+  {
+    code: "DENSITY_CHECK",
+    category: "Quality",
+    label: "Density check against invoice / reference",
+    unit: "kg/m3",
+    sortOrder: 20,
+  },
+  {
+    code: "DIP_VS_BOOK",
+    category: "Stock",
+    label: "Physical dip agrees with book stock",
+    unit: "L",
+    sortOrder: 30,
+  },
+  {
+    code: "STAMP_VALID",
+    category: "Statutory",
+    label: "Nozzle stamping / calibration is valid",
+    sortOrder: 40,
+  },
+  {
+    code: "FIRE_EXPIRY",
+    category: "Safety",
+    label: "Fire extinguishers are in date and accessible",
+    sortOrder: 50,
+  },
+  {
+    code: "FIRST_AID",
+    category: "Safety",
+    label: "First-aid box is stocked and accessible",
+    sortOrder: 60,
+  },
+  {
+    code: "DISPLAY_BOARDS",
+    category: "Customer",
+    label: "Required price and statutory display boards are present",
+    sortOrder: 70,
+  },
+  {
+    code: "UNIFORM",
+    category: "People",
+    label: "Staff uniform and identification comply",
+    sortOrder: 80,
+  },
+  {
+    code: "TOILET",
+    category: "Customer",
+    label: "Customer toilet is clean and available",
+    sortOrder: 90,
+  },
+  {
+    code: "AIR",
+    category: "Customer",
+    label: "Free air facility is operational",
+    sortOrder: 100,
+  },
+  {
+    code: "HOUSEKEEPING",
+    category: "Site",
+    label: "Forecourt and equipment housekeeping is satisfactory",
+    sortOrder: 110,
+  },
+] as const;

@@ -1,0 +1,28 @@
+import { z } from "zod";
+
+const optionalText = z.string().trim().optional().transform((value) => value || undefined);
+const requiredText = z.string().trim().min(1, "Required");
+const decimalText = z.string().trim().regex(/^-?\d+(\.\d+)?$/, "Enter a valid decimal");
+const integerText = z.string().trim().regex(/^\d+$/, "Enter a whole number");
+
+export const productSchema = z.object({ code: requiredText, name: requiredText, productType: requiredText, type: requiredText, hsnCode: optionalText, gstPct: optionalText, isFuel: z.boolean(), isDensityTracked: z.boolean(), currentPurchaseRate: optionalText, currentSellingRate: optionalText, reorderLevel: optionalText });
+export const outletSchema = z.object({ code: requiredText, name: requiredText, legalName: optionalText, omc: optionalText, dealerCode: optionalText, addressLine1: optionalText, city: optionalText, state: optionalText, pincode: optionalText, phone: optionalText, email: optionalText, gstin: optionalText });
+export const priceSchema = z.object({ productId: requiredText, rate: decimalText, purchaseRate: optionalText, effectiveFrom: requiredText, reason: optionalText });
+export const tankSchema = z.object({ code: requiredText, name: requiredText, productId: requiredText, capacity: decimalText, deadStock: decimalText, status: requiredText });
+export const dispensingUnitSchema = z.object({ code: requiredText, name: requiredText, make: optionalText, model: optionalText, serialNo: optionalText, status: requiredText });
+export const nozzleSchema = z.object({ code: requiredText, name: requiredText, dispensingUnitId: requiredText, tankId: requiredText, productId: requiredText, initialReading: decimalText, currentReading: decimalText, meterDigits: integerText, status: requiredText });
+export const employeeSchema = z.object({ code: requiredText, name: requiredText, photoUrl: optionalText, phone: optionalText, addressLine1: optionalText, aadhaarLast4: z.string().trim().regex(/^$|^\d{4}$/, "Enter only the last four Aadhaar digits"), joinedOn: requiredText, designation: optionalText, bankName: optionalText, accountNumber: optionalText, ifsc: optionalText, status: requiredText });
+export const shiftSchema = z.object({ code: requiredText, name: requiredText, startTime: z.string().regex(/^\d{2}:\d{2}$/), endTime: z.string().regex(/^\d{2}:\d{2}$/), sequence: integerText });
+export const vehicleSchema = z.object({ vehicleNo: requiredText, driverName: optionalText, allowedProductCodes: z.array(z.string()).default([]), monthlyLimit: optionalText });
+export const customerSchema = z.object({ code: requiredText, name: requiredText, gstin: optionalText, pan: optionalText, addressLine1: optionalText, contactPerson: optionalText, phone: optionalText, creditLimit: decimalText, creditDays: integerText, openingBalance: decimalText, openingBalanceType: z.enum(["DEBIT", "CREDIT"]), discountPerLitre: decimalText, statementEmail: optionalText, statementMobile: optionalText, vehicles: z.array(vehicleSchema).default([]) });
+export const supplierSchema = z.object({ code: requiredText, name: requiredText, type: z.enum(["OMC", "LUBE", "OTHER"]), contactPerson: optionalText, phone: optionalText, addressLine1: optionalText, gstin: optionalText, pan: optionalText, creditDays: integerText });
+export const paymentModeSchema = z.object({ code: requiredText, name: requiredText, type: requiredText, accountId: optionalText, mdrPct: optionalText, settlementDays: integerText, requiresReference: z.boolean() });
+export const expenseHeadSchema = z.object({ code: requiredText, name: requiredText, accountId: optionalText, description: optionalText });
+export const accountGroupSchema = z.object({ code: requiredText, name: requiredText, nature: z.enum(["ASSET", "LIABILITY", "INCOME", "EXPENSE", "EQUITY"]), parentId: optionalText, isBalanceSheet: z.boolean(), sortOrder: integerText });
+export const accountSchema = z.object({ code: requiredText, name: requiredText, groupId: requiredText, nature: z.enum(["ASSET", "LIABILITY", "INCOME", "EXPENSE", "EQUITY"]), normalBalance: z.enum(["DEBIT", "CREDIT"]), openingBalance: decimalText, openingBalanceType: z.enum(["DEBIT", "CREDIT"]), isBankAccount: z.boolean(), bankName: optionalText, accountNumber: optionalText, ifsc: optionalText });
+export const calibrationSchema = z.object({ tankId: requiredText, chartType: z.enum(["FUEL", "WATER"]), dipMm: decimalText, litres: decimalText });
+export const firmSchema = z.object({ name: requiredText, legalName: optionalText, addressLine1: optionalText, addressLine2: optionalText, city: optionalText, state: optionalText, stateCode: optionalText, pincode: optionalText, gstin: optionalText, pan: optionalText, logoUrl: optionalText, bankName: optionalText, bankAccountName: optionalText, bankAccountNumber: optionalText, bankIfsc: optionalText, invoiceTerms: optionalText, declarationText: optionalText, signatureUrl: optionalText, documentSeries: z.array(z.object({ documentType: requiredText, prefix: z.string(), suffix: z.string().optional(), padding: z.string().regex(/^\d+$/) })).default([]) });
+
+export const masterSchemas = { outlet: outletSchema, product: productSchema, price: priceSchema, tank: tankSchema, dispensingUnit: dispensingUnitSchema, nozzle: nozzleSchema, employee: employeeSchema, shift: shiftSchema, customer: customerSchema, supplier: supplierSchema, paymentMode: paymentModeSchema, expenseHead: expenseHeadSchema, accountGroup: accountGroupSchema, account: accountSchema, calibration: calibrationSchema, firm: firmSchema };
+export type MasterEntity = keyof typeof masterSchemas;
+export type MasterPayload = { entity: MasterEntity; id?: string; data: Record<string, unknown> };

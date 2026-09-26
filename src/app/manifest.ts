@@ -1,0 +1,2 @@
+import type { MetadataRoute } from "next";
+export default function manifest(): MetadataRoute.Manifest { return { name: "Fuel Ledger Billing", short_name: "Fuel Ledger", description: "Offline-capable forecourt billing for Indian retail fuel outlets", start_url: "/billing/mobile", display: "standalone", background_color: "#09111d", theme_color: "#18b6a4", orientation: "portrait", icons: [{ src: "/pwa-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" }] }; }
